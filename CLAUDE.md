@@ -14,4 +14,5 @@
 
 ## Planned / in-progress
 
-- Nothing currently tracked
+- Customize (for my use case and/or in general) the pills shown on the top chart
+- Add night mode

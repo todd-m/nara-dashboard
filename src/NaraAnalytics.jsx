@@ -12,7 +12,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import Papa from "papaparse";
 import {
-  ComposedChart, Bar, Line, Scatter, XAxis, YAxis, CartesianGrid,
+  ComposedChart, ScatterChart, Bar, Line, Scatter, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 
@@ -192,37 +192,50 @@ function ChartTip({ active, payload, label }) {
 
 function MedDot({ cx, cy }) {
   return (
-    <polygon
-      points={`${cx},${cy - 6} ${cx - 5},${cy + 4} ${cx + 5},${cy + 4}`}
-      fill="#8b5cf6"
-      opacity={0.85}
-    />
+    <g>
+      <circle cx={cx} cy={cy} r={9} fill="transparent" pointerEvents="all" />
+      <polygon
+        points={`${cx},${cy - 6} ${cx - 5},${cy + 4} ${cx + 5},${cy + 4}`}
+        fill="#8b5cf6"
+        opacity={0.85}
+        pointerEvents="none"
+      />
+    </g>
   );
 }
 
 function MedicalChartTip({ active, payload }) {
   if (!active || !payload?.length) return null;
-  const d = payload[0]?.payload;
-  if (!d) return null;
+  const items = payload.map((p) => p.payload).filter(Boolean);
+  if (!items.length) return null;
+
+  const seen = new Set();
+  const rows = [];
+  items.forEach((d) => {
+    const key = `${d.lbl}-${d.med_name || "temp"}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    rows.push(d);
+  });
+
   return (
     <div style={{
       background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8,
       padding: "8px 12px", fontSize: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
     }}>
-      {d.y != null && !d.med_name && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ width: 8, height: 8, borderRadius: 50, background: "#ef4444", flexShrink: 0 }} />
-          <span style={{ color: "#6b7280", width: 56 }}>{d.lbl}</span>
-          <span style={{ fontFamily: "monospace", fontWeight: 500 }}>{d.y}°F</span>
-        </div>
-      )}
-      {d.med_name && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      {rows.map((d, i) => d.med_name ? (
+        <div key={`m-${i}`} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
           <span style={{ width: 8, height: 8, borderRadius: 2, background: "#8b5cf6", flexShrink: 0 }} />
           <span style={{ color: "#6b7280", width: 56 }}>{d.lbl}</span>
           <span style={{ fontFamily: "monospace", fontWeight: 500 }}>{d.med_name}</span>
         </div>
-      )}
+      ) : (
+        <div key={`t-${i}`} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+          <span style={{ width: 8, height: 8, borderRadius: 50, background: "#ef4444", flexShrink: 0 }} />
+          <span style={{ color: "#6b7280", width: 56 }}>{d.lbl}</span>
+          <span style={{ fontFamily: "monospace", fontWeight: 500 }}>{d.y}°F</span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -505,7 +518,7 @@ export default function NaraAnalytics() {
           </div>
           <div style={{ height: 220, ...card }}>
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
+              <ScatterChart margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
                 <XAxis
                   dataKey="x"
@@ -535,7 +548,7 @@ export default function NaraAnalytics() {
                   <ReferenceLine key={t} x={t} stroke="#eeeeee" strokeWidth={1} />
                 ))}
                 <ReferenceLine y={100} stroke="#000" strokeWidth={1} strokeDasharray="4 3" />
-                <Tooltip content={MedicalChartTip} cursor={{ strokeDasharray: "3 3" }} />
+                <Tooltip content={MedicalChartTip} cursor={false} animationDuration={0} />
                 <Scatter
                   data={medicalData.temps}
                   shape={(p) => <circle cx={p.cx} cy={p.cy} r={5} fill="#ef4444" stroke="#fff" strokeWidth={1.5} />}
@@ -543,10 +556,10 @@ export default function NaraAnalytics() {
                 />
                 <Scatter
                   data={medicalData.meds}
-                  shape={<MedDot />}
+                  shape={(p) => <MedDot {...p} />}
                   isAnimationActive={false}
                 />
-              </ComposedChart>
+              </ScatterChart>
             </ResponsiveContainer>
           </div>
         </div>

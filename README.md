@@ -13,12 +13,16 @@ Data is persisted in `localStorage` so imports survive page refreshes. Multiple 
 
 ## Architecture
 
-Everything lives in `src/NaraAnalytics.jsx` — a single self-contained React component with no routing or global state.
+| File | Role |
+|---|---|
+| `src/helpers.js` | Pure functions: `toF`, `toOz`, `formatEpoch`, `aggregateByDay`, `aggregateMedical`, `loadFromStorage`, `saveToStorage` |
+| `src/NaraAnalytics.jsx` | React component + tooltip components (`ChartTip`, `MedDot`, `MedicalChartTip`); imports from helpers |
+| `src/__tests__/` | vitest + jsdom test suite (68 tests) |
 
 | Layer | Detail |
 |---|---|
 | Parsing | PapaParse (CSV → JS objects), dedup on `_activityKey` column |
-| Aggregation | `aggregateByDay()` — rolls records into per-day totals for the main chart; `aggregateMedical()` — extracts individual readings for the medical chart |
+| Aggregation | `aggregateByDay()` — rolls records into per-day totals; `aggregateMedical()` — extracts individual readings |
 | Charts | recharts `ComposedChart` (main daily chart), `ScatterChart` (medical — item-mode 2D hover) |
 | Persistence | `localStorage` under key `nara_data` |
 
@@ -32,6 +36,7 @@ Key design decisions:
 ```bash
 npm install
 make dev      # or: npm run dev
+make test     # or: npm test
 ```
 
 Open [http://localhost:5173](http://localhost:5173), then import a Nara CSV via the "⬆ import csv" button.

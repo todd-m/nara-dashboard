@@ -2,12 +2,11 @@
 
 ## Recent changes
 
+- `a3853ee` — Dark mode: `LIGHT`/`DARK` theme tokens, `useDarkMode()` hook tracking `prefers-color-scheme`, theme applied to all inline styles, chart axes/grids, and tooltips
+- `a97a000` — Update CLAUDE.md and README to reflect test infrastructure
+- `cc76b17` — Add vitest + jsdom + istanbul test suite (68 tests); extract helpers to `src/helpers.js`; add `make test`
 - `a37b24f` — Switch medical chart from ComposedChart to ScatterChart for item-mode (2D) tooltip hover; disable tooltip fly-in animation
 - `6aa55d0` — Initial commit: daily activity chart, medical temperature/medication chart, CSV import, localStorage persistence
-
-## In progress (uncommitted)
-
-- Test infrastructure: `src/helpers.js` (extracted pure functions), `src/__tests__/` (68 tests), vitest+jsdom+istanbul config, `make test`
 
 ## Conventions
 
@@ -18,7 +17,6 @@
 - Tests: vitest + jsdom + istanbul (not c8); import modules directly
 - **Every new feature must include tests.** New pure functions go in `helpers.js` and get a test in `helpers.test.js`; new components get tests in the appropriate `__tests__/` file.
 
-## Planned / in-progress
+## Planned
 
 - Customize (for my use case and/or in general) the pills shown on the top chart
-- Add night mode

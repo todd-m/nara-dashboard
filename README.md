@@ -9,7 +9,7 @@ Import a CSV exported from the Nara Baby app and get interactive charts for:
 - **Daily activity** — sleep hours, feed count, breastfeed time, bottle/pump oz, diaper count (7d / 14d / 30d / all-time views)
 - **Medical** — temperature scatter plot (per-reading, °F) and medication events over the last 7 days
 
-Data is persisted in `localStorage` so imports survive page refreshes. Multiple profiles in a single CSV are supported via a profile selector.
+Data is persisted in `localStorage` so imports survive page refreshes. Multiple profiles in a single CSV are supported via a profile selector. Dark mode follows the system `prefers-color-scheme` setting automatically.
 
 ## Architecture
 

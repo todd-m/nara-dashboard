@@ -41,28 +41,83 @@ const RANGES = [
 ];
 
 // ---------------------------------------------------------------------------
-// Chart tooltip
+// Theme
 // ---------------------------------------------------------------------------
 
-export function ChartTip({ active, payload, label }) {
+const LIGHT = {
+  bg:              "#ffffff",
+  surface:         "#f9fafb",
+  border:          "#e5e7eb",
+  borderStrong:    "#d1d5db",
+  text:            "#111827",
+  textMuted:       "#6b7280",
+  textFaint:       "#9ca3af",
+  textFaintest:    "#d1d5db",
+  gridLine:        "#f0f0f0",
+  axisLine:        "#e5e7eb",
+  btnBg:           "#ffffff",
+  tooltipBg:       "#ffffff",
+  tooltipShadow:   "rgba(0,0,0,0.08)",
+  refLine100:      "#000000",
+  toastBg:         "#f0fdf4",
+  toastText:       "#15803d",
+  toastBorder:     "#bbf7d0",
+};
+
+const DARK = {
+  bg:              "#0f172a",
+  surface:         "#1e293b",
+  border:          "#334155",
+  borderStrong:    "#475569",
+  text:            "#f1f5f9",
+  textMuted:       "#94a3b8",
+  textFaint:       "#64748b",
+  textFaintest:    "#475569",
+  gridLine:        "#243044",
+  axisLine:        "#334155",
+  btnBg:           "#1e293b",
+  tooltipBg:       "#1e293b",
+  tooltipShadow:   "rgba(0,0,0,0.4)",
+  refLine100:      "#64748b",
+  toastBg:         "#14532d",
+  toastText:       "#86efac",
+  toastBorder:     "#166534",
+};
+
+function useDarkMode() {
+  const mq = window.matchMedia("(prefers-color-scheme: dark)");
+  const [dark, setDark] = useState(mq.matches);
+  useEffect(() => {
+    const handler = (e) => setDark(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+  return dark;
+}
+
+// ---------------------------------------------------------------------------
+// Chart tooltips
+// ---------------------------------------------------------------------------
+
+export function ChartTip({ active, payload, label, theme = LIGHT }) {
   if (!active || !payload?.length) return null;
   return (
     <div style={{
-      background: "#fff",
-      border: "1px solid #e5e7eb",
+      background: theme.tooltipBg,
+      border: `1px solid ${theme.border}`,
       borderRadius: 8,
       padding: "8px 12px",
       fontSize: 12,
-      boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+      boxShadow: `0 2px 8px ${theme.tooltipShadow}`,
     }}>
-      <div style={{ color: "#6b7280", marginBottom: 6 }}>{label}</div>
+      <div style={{ color: theme.textMuted, marginBottom: 6 }}>{label}</div>
       {payload.map((p) => {
         const s = SERIES.find((s) => s.key === p.dataKey);
         return (
           <div key={p.dataKey} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
             <span style={{ width: 8, height: 8, borderRadius: 2, background: p.color, flexShrink: 0 }} />
-            <span style={{ color: "#6b7280", width: 72 }}>{s?.label}</span>
-            <span style={{ fontFamily: "monospace", fontWeight: 500 }}>
+            <span style={{ color: theme.textMuted, width: 72 }}>{s?.label}</span>
+            <span style={{ fontFamily: "monospace", fontWeight: 500, color: theme.text }}>
               {p.value} {s?.unit.split("/")[0]}
             </span>
           </div>
@@ -86,7 +141,7 @@ export function MedDot({ cx, cy }) {
   );
 }
 
-export function MedicalChartTip({ active, payload }) {
+export function MedicalChartTip({ active, payload, theme = LIGHT }) {
   if (!active || !payload?.length) return null;
   const items = payload.map((p) => p.payload).filter(Boolean);
   if (!items.length) return null;
@@ -102,20 +157,20 @@ export function MedicalChartTip({ active, payload }) {
 
   return (
     <div style={{
-      background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8,
-      padding: "8px 12px", fontSize: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+      background: theme.tooltipBg, border: `1px solid ${theme.border}`, borderRadius: 8,
+      padding: "8px 12px", fontSize: 12, boxShadow: `0 2px 8px ${theme.tooltipShadow}`,
     }}>
       {rows.map((d, i) => d.med_name ? (
         <div key={`m-${i}`} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
           <span style={{ width: 8, height: 8, borderRadius: 2, background: "#8b5cf6", flexShrink: 0 }} />
-          <span style={{ color: "#6b7280", width: 56 }}>{d.lbl}</span>
-          <span style={{ fontFamily: "monospace", fontWeight: 500 }}>{d.med_name}</span>
+          <span style={{ color: theme.textMuted, width: 56 }}>{d.lbl}</span>
+          <span style={{ fontFamily: "monospace", fontWeight: 500, color: theme.text }}>{d.med_name}</span>
         </div>
       ) : (
         <div key={`t-${i}`} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
           <span style={{ width: 8, height: 8, borderRadius: 50, background: "#ef4444", flexShrink: 0 }} />
-          <span style={{ color: "#6b7280", width: 56 }}>{d.lbl}</span>
-          <span style={{ fontFamily: "monospace", fontWeight: 500 }}>{d.y}°F</span>
+          <span style={{ color: theme.textMuted, width: 56 }}>{d.lbl}</span>
+          <span style={{ fontFamily: "monospace", fontWeight: 500, color: theme.text }}>{d.y}°F</span>
         </div>
       ))}
     </div>
@@ -135,6 +190,8 @@ export default function NaraAnalytics() {
   const [importing, setImporting] = useState(false);
   const [toast, setToast]     = useState(null);
   const fileRef = useRef();
+
+  const t = useDarkMode() ? DARK : LIGHT;
 
   // Load persisted data on mount
   useEffect(() => {
@@ -202,14 +259,12 @@ export default function NaraAnalytics() {
       header: true,
       skipEmptyLines: true,
       complete: ({ data }) => {
-        // Strip empty fields to save space
         const cleaned = data.map((r) => {
           const c = {};
           Object.entries(r).forEach(([k, v]) => { if (v !== "" && v != null) c[k] = v; });
           return c;
         });
 
-        // Merge with dedup on _activityKey
         const map = {};
         records.forEach((r) => { if (r["_activityKey"]) map[r["_activityKey"]] = r; });
         let added = 0;
@@ -249,44 +304,42 @@ export default function NaraAnalytics() {
 
   const activeSeries = SERIES.filter((s) => active.includes(s.key));
 
-  // ---------------------------------------------------------------------------
-  // Styles (plain objects; swap for Tailwind/CSS modules as preferred)
-  // ---------------------------------------------------------------------------
   const card = {
-    background: "#f9fafb",
+    background: t.surface,
     borderRadius: 8,
     padding: "10px 14px",
-    border: "1px solid #e5e7eb",
+    border: `1px solid ${t.border}`,
   };
 
   return (
-    <div style={{ fontFamily: "system-ui, sans-serif", maxWidth: 900, margin: "0 auto", padding: "2rem 1rem" }}>
+    <div style={{ fontFamily: "system-ui, sans-serif", maxWidth: 900, margin: "0 auto", padding: "2rem 1rem", background: t.bg, color: t.text, minHeight: "100vh" }}>
 
       {/* Header */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: "1.5rem" }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: 20, fontWeight: 500 }}>baby data</h1>
+          <h1 style={{ margin: 0, fontSize: 20, fontWeight: 500, color: t.text }}>baby data</h1>
           {meta && (
-            <p style={{ margin: "4px 0 0", fontSize: 13, color: "#6b7280" }}>
+            <p style={{ margin: "4px 0 0", fontSize: 13, color: t.textMuted }}>
               {meta.count.toLocaleString()} records · last import {meta.lastImport}
             </p>
           )}
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           {profiles.length > 1 && (
-            <select value={profile} onChange={(e) => setProfile(e.target.value)} style={{ fontSize: 13, padding: "5px 8px", borderRadius: 6, border: "1px solid #d1d5db" }}>
+            <select value={profile} onChange={(e) => setProfile(e.target.value)}
+              style={{ fontSize: 13, padding: "5px 8px", borderRadius: 6, border: `1px solid ${t.borderStrong}`, background: t.btnBg, color: t.text }}>
               <option value="all">all profiles</option>
               {profiles.map((p) => <option key={p} value={p}>{p}</option>)}
             </select>
           )}
           <input type="file" accept=".csv" ref={fileRef} style={{ display: "none" }} onChange={handleFile} />
           <button onClick={() => fileRef.current?.click()} disabled={importing}
-            style={{ padding: "5px 12px", fontSize: 13, borderRadius: 6, border: "1px solid #d1d5db", background: "#fff", cursor: "pointer" }}>
+            style={{ padding: "5px 12px", fontSize: 13, borderRadius: 6, border: `1px solid ${t.borderStrong}`, background: t.btnBg, color: t.text, cursor: "pointer" }}>
             {importing ? "importing…" : "⬆ import csv"}
           </button>
           {records.length > 0 && (
             <button onClick={clearData}
-              style={{ padding: "5px 12px", fontSize: 13, borderRadius: 6, border: "1px solid #fca5a5", background: "#fff", color: "#dc2626", cursor: "pointer" }}>
+              style={{ padding: "5px 12px", fontSize: 13, borderRadius: 6, border: "1px solid #fca5a5", background: t.btnBg, color: "#dc2626", cursor: "pointer" }}>
               clear
             </button>
           )}
@@ -302,9 +355,9 @@ export default function NaraAnalytics() {
             { label: "avg diapers", value: stats.diapers, unit: "per day" },
           ].map((s) => (
             <div key={s.label} style={card}>
-              <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 4 }}>{s.label}</div>
-              <div style={{ fontFamily: "monospace", fontSize: 24, fontWeight: 600, lineHeight: 1 }}>{s.value}</div>
-              <div style={{ fontSize: 11, color: "#d1d5db", marginTop: 4 }}>{s.unit} · {stats.days}d avg</div>
+              <div style={{ fontSize: 11, color: t.textFaint, marginBottom: 4 }}>{s.label}</div>
+              <div style={{ fontFamily: "monospace", fontSize: 24, fontWeight: 600, lineHeight: 1, color: t.text }}>{s.value}</div>
+              <div style={{ fontSize: 11, color: t.textFaintest, marginTop: 4 }}>{s.unit} · {stats.days}d avg</div>
             </div>
           ))}
         </div>
@@ -320,12 +373,12 @@ export default function NaraAnalytics() {
                 style={{
                   display: "flex", alignItems: "center", gap: 5,
                   padding: "4px 10px", fontSize: 12, borderRadius: 20,
-                  border: `1px solid ${on ? s.color : "#e5e7eb"}`,
-                  color: on ? s.color : "#9ca3af",
-                  background: on ? `${s.color}10` : "#fff",
+                  border: `1px solid ${on ? s.color : t.border}`,
+                  color: on ? s.color : t.textFaint,
+                  background: on ? `${s.color}18` : t.btnBg,
                   cursor: "pointer",
                 }}>
-                <span style={{ width: 7, height: 7, borderRadius: s.bar ? 1 : 50, background: on ? s.color : "#d1d5db", flexShrink: 0 }} />
+                <span style={{ width: 7, height: 7, borderRadius: s.bar ? 1 : 50, background: on ? s.color : t.textFaintest, flexShrink: 0 }} />
                 {s.label}
               </button>
             );
@@ -336,8 +389,9 @@ export default function NaraAnalytics() {
             <button key={r.v} onClick={() => setRange(r.v)}
               style={{
                 padding: "4px 10px", fontSize: 12, borderRadius: 6,
-                border: "1px solid #e5e7eb",
-                background: range === r.v ? "#f3f4f6" : "#fff",
+                border: `1px solid ${t.border}`,
+                background: range === r.v ? t.surface : t.btnBg,
+                color: range === r.v ? t.text : t.textMuted,
                 fontWeight: range === r.v ? 600 : 400,
                 cursor: "pointer",
               }}>
@@ -349,17 +403,17 @@ export default function NaraAnalytics() {
 
       {/* Chart */}
       {chartData.length === 0 ? (
-        <div style={{ border: "1px dashed #d1d5db", borderRadius: 12, padding: "3rem", textAlign: "center", color: "#9ca3af", fontSize: 14 }}>
+        <div style={{ border: `1px dashed ${t.borderStrong}`, borderRadius: 12, padding: "3rem", textAlign: "center", color: t.textFaint, fontSize: 14 }}>
           import a nara csv export to get started
         </div>
       ) : (
         <div style={{ height: 320, ...card }}>
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={chartData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-              <XAxis dataKey="lbl" tick={{ fontSize: 11, fill: "#9ca3af" }} tickLine={false} axisLine={{ stroke: "#e5e7eb" }} interval="preserveStartEnd" />
-              <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} tickLine={false} axisLine={false} />
-              <Tooltip content={ChartTip} />
+              <CartesianGrid strokeDasharray="3 3" stroke={t.gridLine} vertical={false} />
+              <XAxis dataKey="lbl" tick={{ fontSize: 11, fill: t.textFaint }} tickLine={false} axisLine={{ stroke: t.axisLine }} interval="preserveStartEnd" />
+              <YAxis tick={{ fontSize: 11, fill: t.textFaint }} tickLine={false} axisLine={false} />
+              <Tooltip content={(p) => <ChartTip theme={t} {...p} />} />
               {activeSeries.map((s) =>
                 s.bar
                   ? <Bar  key={s.key} dataKey={s.key} fill={s.color} fillOpacity={0.45} radius={[2, 2, 0, 0]} maxBarSize={18} />
@@ -373,13 +427,13 @@ export default function NaraAnalytics() {
       {/* Medical chart */}
       {hasMedical && (
         <div style={{ marginTop: "1.5rem" }}>
-          <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: "0.75rem" }}>
+          <div style={{ fontSize: 12, color: t.textFaint, marginBottom: "0.75rem" }}>
             medical · last 7 days
           </div>
           <div style={{ height: 220, ...card }}>
             <ResponsiveContainer width="100%" height="100%">
               <ScatterChart margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke={t.gridLine} vertical={false} />
                 <XAxis
                   dataKey="x"
                   type="number"
@@ -390,28 +444,28 @@ export default function NaraAnalytics() {
                     const d = new Date(v);
                     return `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
                   }}
-                  tick={{ fontSize: 11, fill: "#374151", fontWeight: 500 }}
-                  tickLine={{ stroke: "#6b7280", strokeWidth: 1 }}
-                  axisLine={{ stroke: "#e5e7eb" }}
+                  tick={{ fontSize: 11, fill: t.text, fontWeight: 500 }}
+                  tickLine={{ stroke: t.textMuted, strokeWidth: 1 }}
+                  axisLine={{ stroke: t.axisLine }}
                 />
                 <YAxis
                   dataKey="y"
                   type="number"
                   domain={[96, 105]}
                   ticks={[97, 98, 99, 100, 101, 102, 103, 104, 105]}
-                  tick={{ fontSize: 11, fill: "#9ca3af" }}
+                  tick={{ fontSize: 11, fill: t.textFaint }}
                   tickLine={false}
                   axisLine={false}
                   tickFormatter={(v) => `${v}°`}
                 />
-                {medicalData.dayTicks.map((t) => (
-                  <ReferenceLine key={t} x={t} stroke="#eeeeee" strokeWidth={1} />
+                {medicalData.dayTicks.map((tick) => (
+                  <ReferenceLine key={tick} x={tick} stroke={t.gridLine} strokeWidth={1} />
                 ))}
-                <ReferenceLine y={100} stroke="#000" strokeWidth={1} strokeDasharray="4 3" />
-                <Tooltip content={MedicalChartTip} cursor={false} animationDuration={0} />
+                <ReferenceLine y={100} stroke={t.refLine100} strokeWidth={1} strokeDasharray="4 3" />
+                <Tooltip content={(p) => <MedicalChartTip theme={t} {...p} />} cursor={false} animationDuration={0} />
                 <Scatter
                   data={medicalData.temps}
-                  shape={(p) => <circle cx={p.cx} cy={p.cy} r={5} fill="#ef4444" stroke="#fff" strokeWidth={1.5} />}
+                  shape={(p) => <circle cx={p.cx} cy={p.cy} r={5} fill="#ef4444" stroke={t.surface} strokeWidth={1.5} />}
                   isAnimationActive={false}
                 />
                 <Scatter
@@ -427,7 +481,7 @@ export default function NaraAnalytics() {
 
       {/* Toast */}
       {toast && (
-        <div style={{ marginTop: "1rem", padding: "10px 14px", background: "#f0fdf4", color: "#15803d", borderRadius: 8, fontSize: 13, border: "1px solid #bbf7d0" }}>
+        <div style={{ marginTop: "1rem", padding: "10px 14px", background: t.toastBg, color: t.toastText, borderRadius: 8, fontSize: 13, border: `1px solid ${t.toastBorder}` }}>
           ✓ {toast}
         </div>
       )}

@@ -20,3 +20,4 @@
 ## Planned
 
 - Customize (for my use case and/or in general) the pills shown on the top chart
+- Add longer time windows on med chart

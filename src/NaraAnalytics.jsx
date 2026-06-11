@@ -85,9 +85,11 @@ const DARK = {
 };
 
 function useDarkMode() {
-  const mq = window.matchMedia("(prefers-color-scheme: dark)");
-  const [dark, setDark] = useState(mq.matches);
+  const [dark, setDark] = useState(
+    () => window.matchMedia("(prefers-color-scheme: dark)").matches
+  );
   useEffect(() => {
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
     const handler = (e) => setDark(e.matches);
     mq.addEventListener("change", handler);
     return () => mq.removeEventListener("change", handler);
@@ -182,23 +184,20 @@ export function MedicalChartTip({ active, payload, theme = LIGHT }) {
 // ---------------------------------------------------------------------------
 
 export default function NaraAnalytics() {
-  const [records, setRecords] = useState([]);
-  const [meta, setMeta]       = useState(null);
+  // Persisted data loads via lazy initializers (runs once, before first paint)
+  const [persisted] = useState(loadFromStorage);
+  const [records, setRecords] = useState(persisted.records);
+  const [meta, setMeta]       = useState(persisted.meta);
   const [active, setActive]   = useState(["sleep_hours", "feed_count"]);
   const [range, setRange]     = useState("30");
   const [profile, setProfile] = useState("all");
   const [importing, setImporting] = useState(false);
   const [toast, setToast]     = useState(null);
+  // Reference time for "last N days" filters; fixed at mount so renders stay pure
+  const [now] = useState(() => Date.now());
   const fileRef = useRef();
 
   const t = useDarkMode() ? DARK : LIGHT;
-
-  // Load persisted data on mount
-  useEffect(() => {
-    const { records: r, meta: m } = loadFromStorage();
-    setRecords(r);
-    setMeta(m);
-  }, []);
 
   const profiles = useMemo(
     () => [...new Set(records.map((r) => r["Profile Name"]).filter(Boolean))],
@@ -212,11 +211,11 @@ export default function NaraAnalytics() {
 
   const filtered = useMemo(() => {
     if (range === "all") return byProfile;
-    const cutoff = Date.now() - parseInt(range) * 86400000;
+    const cutoff = now - parseInt(range) * 86400000;
     return byProfile.filter(
       (r) => parseInt(r["Start Date/time (Epoch)"] || "0") >= cutoff
     );
-  }, [byProfile, range]);
+  }, [byProfile, range, now]);
 
   const chartData = useMemo(() => aggregateByDay(filtered), [filtered]);
 
@@ -226,12 +225,12 @@ export default function NaraAnalytics() {
   );
 
   const medicalData = useMemo(
-    () => hasMedical ? aggregateMedical(byProfile) : { temps: [], meds: [], domain: [Date.now() - 7 * 86400000, Date.now()], dayTicks: [] },
-    [byProfile, hasMedical]
+    () => hasMedical ? aggregateMedical(byProfile) : { temps: [], meds: [], domain: [now - 7 * 86400000, now], dayTicks: [] },
+    [byProfile, hasMedical, now]
   );
 
   const stats = useMemo(() => {
-    const cutoff = Date.now() - 7 * 86400000;
+    const cutoff = now - 7 * 86400000;
     const d = aggregateByDay(
       byProfile.filter((r) => parseInt(r["Start Date/time (Epoch)"] || "0") >= cutoff)
     );
@@ -248,7 +247,7 @@ export default function NaraAnalytics() {
       diapers: avg("diaper_count"),
       days: d.length,
     };
-  }, [byProfile]);
+  }, [byProfile, now]);
 
   function handleFile(e) {
     const file = e.target.files[0];

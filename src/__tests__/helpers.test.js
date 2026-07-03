@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
-  toOz, toF, formatEpoch,
-  aggregateByDay, aggregateMedical,
+  toOz, toF, formatEpoch, formatDay, formatWindow,
+  aggregateByDay, aggregateMedical, fillMissingDays,
+  timeWindow, windowTicks, earliestEpoch,
   loadFromStorage, saveToStorage, STORAGE_KEY,
 } from '../helpers.js';
 
@@ -220,6 +221,155 @@ describe('aggregateByDay', () => {
 });
 
 // ---------------------------------------------------------------------------
+// formatDay / formatWindow
+// ---------------------------------------------------------------------------
+
+describe('formatDay / formatWindow', () => {
+  const epoch = new Date('2024-05-04T15:30:00').getTime();
+
+  it('formats an epoch as mm/dd', () => {
+    expect(formatDay(epoch)).toBe('05/04');
+  });
+
+  it('formats a window as mm/dd – mm/dd', () => {
+    const end = new Date('2024-05-11T09:00:00').getTime();
+    expect(formatWindow(epoch, end)).toBe('05/04 – 05/11');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// earliestEpoch
+// ---------------------------------------------------------------------------
+
+describe('earliestEpoch', () => {
+  const rec = (epoch) => ({ 'Start Date/time (Epoch)': epoch });
+
+  it('returns the smallest valid epoch', () => {
+    expect(earliestEpoch([rec('3000'), rec('1000'), rec('2000')])).toBe(1000);
+  });
+
+  it('ignores missing and unparseable epochs', () => {
+    expect(earliestEpoch([rec(undefined), rec('nope'), rec('500')])).toBe(500);
+  });
+
+  it('ignores epochs after now when a cap is given', () => {
+    expect(earliestEpoch([rec('100'), rec('900')], 500)).toBe(100);
+    expect(earliestEpoch([rec('900')], 500)).toBeNull();
+  });
+
+  it('returns null when nothing is valid', () => {
+    expect(earliestEpoch([])).toBeNull();
+    expect(earliestEpoch([rec(undefined)])).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// timeWindow
+// ---------------------------------------------------------------------------
+
+describe('timeWindow', () => {
+  const NOW = new Date('2024-05-14T12:00:00').getTime();
+  const DAY = 86400000;
+
+  it('offset 0 spans from midnight N days ago to now', () => {
+    const { start, end } = timeWindow([], { days: 7, now: NOW });
+    expect(end).toBe(NOW);
+    expect(new Date(start).getHours()).toBe(0);
+    const span = (end - start) / DAY;
+    expect(span).toBeGreaterThanOrEqual(7);
+    expect(span).toBeLessThanOrEqual(8);
+  });
+
+  it('pages tile back to back: offset 1 ends where offset 0 starts', () => {
+    const w0 = timeWindow([], { days: 7, now: NOW });
+    const w1 = timeWindow([], { days: 7, offset: 1, now: NOW });
+    expect(w1.end).toBe(w0.start);
+    expect(new Date(w1.start).getHours()).toBe(0);
+    expect((w1.end - w1.start) / DAY).toBe(7);
+  });
+
+  it('deeper offsets keep tiling without gaps', () => {
+    const w1 = timeWindow([], { days: 14, offset: 1, now: NOW });
+    const w2 = timeWindow([], { days: 14, offset: 2, now: NOW });
+    expect(w2.end).toBe(w1.start);
+  });
+
+  it('"all" anchors at the earliest record and ignores offset', () => {
+    const records = [{ 'Start Date/time (Epoch)': String(NOW - 10 * DAY) }];
+    const w = timeWindow(records, { days: 'all', offset: 3, now: NOW });
+    expect(w).toEqual(timeWindow(records, { days: 'all', now: NOW }));
+    expect(w.end).toBe(NOW);
+    expect(NOW - 10 * DAY - w.start).toBeLessThan(DAY);
+  });
+
+  it('"all" with no valid records falls back to a 7-day window', () => {
+    expect(timeWindow([], { days: 'all', now: NOW }))
+      .toEqual(timeWindow([], { days: 7, now: NOW }));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fillMissingDays
+// ---------------------------------------------------------------------------
+
+describe('fillMissingDays', () => {
+  const DAY = 86400000;
+  const may = (d) => new Date(`2024-05-${String(d).padStart(2, '0')}T00:00:00`).getTime();
+  const row = (date) => ({
+    date, lbl: date.slice(5).replace('-', '/'),
+    sleep_hours: 8, feed_count: 5, breastfeed_min: 30,
+    bottle_oz: 4, pump_oz: 0, diaper_count: 6, dirty_count: 2,
+  });
+
+  it('returns one row per calendar day across the window', () => {
+    const filled = fillMissingDays([], may(1), may(7) + DAY / 2);
+    expect(filled).toHaveLength(7);
+    expect(filled[0].date).toBe('2024-05-01');
+    expect(filled[6].date).toBe('2024-05-07');
+  });
+
+  it('preserves existing rows and fills gaps with nulls, not zeros', () => {
+    const days = [row('2024-05-02'), row('2024-05-04')];
+    const filled = fillMissingDays(days, may(1), may(5));
+    expect(filled).toHaveLength(5);
+    expect(filled[1]).toBe(days[0]);
+    expect(filled[3]).toBe(days[1]);
+    expect(filled[2].sleep_hours).toBeNull();
+    expect(filled[2].feed_count).toBeNull();
+    expect(filled[2].diaper_count).toBeNull();
+  });
+
+  it('gives filled days mm/dd labels matching aggregateByDay', () => {
+    const filled = fillMissingDays([], may(9), may(9));
+    expect(filled).toHaveLength(1);
+    expect(filled[0].lbl).toBe('05/09');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// windowTicks
+// ---------------------------------------------------------------------------
+
+describe('windowTicks', () => {
+  const DAY = 86400000;
+  const midnight = new Date('2024-05-07T00:00:00').getTime();
+
+  it('emits daily ticks for a 7-day window', () => {
+    const ticks = windowTicks(midnight, midnight + 7 * DAY + DAY / 2);
+    expect(ticks).toHaveLength(8);
+    expect(ticks[0]).toBe(midnight);
+    expect(ticks[1] - ticks[0]).toBe(DAY);
+  });
+
+  it('steps wider for long windows, capping around 10 ticks', () => {
+    const ticks = windowTicks(midnight - 30 * DAY, midnight);
+    expect(ticks.length).toBeLessThanOrEqual(11);
+    expect(ticks.length).toBeGreaterThanOrEqual(8);
+    ticks.forEach((t) => expect(new Date(t).getHours()).toBe(0));
+  });
+});
+
+// ---------------------------------------------------------------------------
 // aggregateMedical
 // ---------------------------------------------------------------------------
 
@@ -378,6 +528,20 @@ describe('aggregateMedical', () => {
     const later = NOW + 86400000;
     const { domain } = aggregateMedical([], { now: later });
     expect(domain[1]).toBe(later);
+  });
+
+  it('offset 1 pages the 7-day window back', () => {
+    const records = [tempRecord(withinWindow), tempRecord(outsideWindow)]; // 2d and 10d ago
+    const page1 = aggregateMedical(records, { offset: 1 });
+    // previous window: only the 10-days-ago reading
+    expect(page1.temps).toHaveLength(1);
+    expect(page1.temps[0].x).toBe(outsideWindow);
+    // domain sits entirely in the past and ticks stay inside it
+    expect(page1.domain[1]).toBeLessThan(NOW);
+    page1.dayTicks.forEach((t) => {
+      expect(t).toBeGreaterThanOrEqual(page1.domain[0]);
+      expect(t).toBeLessThanOrEqual(page1.domain[1]);
+    });
   });
 });
 

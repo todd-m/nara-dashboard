@@ -20,6 +20,15 @@ export function formatEpoch(epoch) {
   return `${mo}/${dy} ${hr}:${min}`;
 }
 
+export function formatDay(epoch) {
+  const d = new Date(epoch);
+  return `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
+}
+
+export function formatWindow(start, end) {
+  return `${formatDay(start)} – ${formatDay(end)}`;
+}
+
 export function aggregateByDay(records) {
   const days = {};
 
@@ -87,28 +96,86 @@ export function aggregateByDay(records) {
 
 const DAY_MS = 24 * 3600 * 1000;
 
-export function aggregateMedical(records, { days = 7, now = Date.now() } = {}) {
-  const medicals = records.filter((r) => r["Type"] === "Medical");
+function floorToMidnight(epoch) {
+  const d = new Date(epoch);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
 
-  let windowStart;
+export function earliestEpoch(records, now = Infinity) {
+  let min = Infinity;
+  records.forEach((r) => {
+    const e = parseInt(r["Start Date/time (Epoch)"]) || 0;
+    if (e > 0 && e <= now && e < min) min = e;
+  });
+  return min === Infinity ? null : min;
+}
+
+export function timeWindow(records, { days = 7, offset = 0, now = Date.now() } = {}) {
   if (days === "all") {
-    const epochs = medicals
-      .map((r) => parseInt(r["Start Date/time (Epoch)"]) || 0)
-      .filter((e) => e > 0 && e <= now);
-    windowStart = epochs.length ? Math.min(...epochs) : now - 7 * DAY_MS;
-  } else {
-    windowStart = now - days * DAY_MS;
+    const anchor = earliestEpoch(records, now) ?? now - 7 * DAY_MS;
+    return { start: floorToMidnight(anchor), end: now };
   }
-  const startDate = new Date(windowStart);
-  startDate.setHours(0, 0, 0, 0);
-  const start = startDate.getTime();
+  // Pages tile back to back: page k's end is page k-1's start, each start
+  // floored to midnight so windows line up with day boundaries.
+  let end = now;
+  let start = floorToMidnight(end - days * DAY_MS);
+  for (let k = 0; k < offset; k++) {
+    end = start;
+    start = floorToMidnight(end - days * DAY_MS);
+  }
+  return { start, end };
+}
+
+export function windowTicks(start, end) {
+  // Step ticks so long windows stay readable (~10 ticks max): daily for
+  // 7d/14d, every 3rd day for 30d, wider for "all".
+  const windowDays = Math.ceil((end - start) / DAY_MS);
+  const stepMs = Math.max(1, Math.ceil(windowDays / 10)) * DAY_MS;
+  const ticks = [];
+  for (let t = start; t <= end; t += stepMs) ticks.push(t);
+  return ticks;
+}
+
+export function fillMissingDays(days, start, end) {
+  const byDate = {};
+  days.forEach((d) => { byDate[d.date] = d; });
+
+  const filled = [];
+  const cursor = new Date(start);
+  cursor.setHours(0, 0, 0, 0);
+  // Step by calendar day (not 24h) so DST transitions can't skew labels.
+  while (cursor.getTime() <= end) {
+    const mo = String(cursor.getMonth() + 1).padStart(2, "0");
+    const dy = String(cursor.getDate()).padStart(2, "0");
+    const date = `${cursor.getFullYear()}-${mo}-${dy}`;
+    // null (not 0) for missing days: 0 would read as a measured zero
+    filled.push(byDate[date] ?? {
+      date,
+      lbl: `${mo}/${dy}`,
+      sleep_hours: null,
+      feed_count: null,
+      breastfeed_min: null,
+      bottle_oz: null,
+      pump_oz: null,
+      diaper_count: null,
+      dirty_count: null,
+    });
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return filled;
+}
+
+export function aggregateMedical(records, { days = 7, offset = 0, now = Date.now() } = {}) {
+  const medicals = records.filter((r) => r["Type"] === "Medical");
+  const { start, end } = timeWindow(medicals, { days, offset, now });
 
   const temps = [];
   const meds = [];
 
   medicals.forEach((r) => {
     const epoch = parseInt(r["Start Date/time (Epoch)"]) || 0;
-    if (epoch < start || epoch > now) return;
+    if (epoch < start || epoch > end) return;
 
     const rawTemp = r["[Medical] Temperature"];
     if (rawTemp) {
@@ -120,14 +187,7 @@ export function aggregateMedical(records, { days = 7, now = Date.now() } = {}) {
     }
   });
 
-  // Step ticks so long windows stay readable (~10 ticks max): daily for
-  // 7d/14d, every 3rd day for 30d, wider for "all".
-  const windowDays = Math.ceil((now - start) / DAY_MS);
-  const stepMs = Math.max(1, Math.ceil(windowDays / 10)) * DAY_MS;
-  const dayTicks = [];
-  for (let t = start; t <= now; t += stepMs) dayTicks.push(t);
-
-  return { temps, meds, domain: [start, now], dayTicks };
+  return { temps, meds, domain: [start, end], dayTicks: windowTicks(start, end) };
 }
 
 export function loadFromStorage() {

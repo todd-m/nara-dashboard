@@ -39,6 +39,22 @@ describe('ChartTip', () => {
     expect(screen.getByText('Sleep')).toBeInTheDocument();
     expect(screen.getByText('Feeds')).toBeInTheDocument();
   });
+
+  it('skips null-valued entries (filled empty days)', () => {
+    const payload = [
+      { dataKey: 'sleep_hours', value: null, color: '#4f88c8' },
+      { dataKey: 'feed_count', value: 8, color: '#3aad7e' },
+    ];
+    render(<ChartTip active={true} payload={payload} label="05/14" />);
+    expect(screen.queryByText('Sleep')).not.toBeInTheDocument();
+    expect(screen.getByText('Feeds')).toBeInTheDocument();
+  });
+
+  it('renders nothing when every value is null', () => {
+    const payload = [{ dataKey: 'sleep_hours', value: null, color: '#4f88c8' }];
+    const { container } = render(<ChartTip active={true} payload={payload} label="05/14" />);
+    expect(container.firstChild).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------

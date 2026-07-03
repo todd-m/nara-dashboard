@@ -3,12 +3,15 @@ import { render, screen, fireEvent, act } from '@testing-library/react';
 import NaraAnalytics from '../NaraAnalytics.jsx';
 import { STORAGE_KEY } from '../helpers.js';
 
-// Mock recharts so ResponsiveContainer doesn't choke without real layout
+// Mock recharts so ResponsiveContainer doesn't choke without real layout.
+// Cloning the chart with fixed dimensions makes charts actually render in
+// jsdom, so tests can assert on axes/ticks.
 vi.mock('recharts', async () => {
   const actual = await vi.importActual('recharts');
+  const React = await vi.importActual('react');
   return {
     ...actual,
-    ResponsiveContainer: ({ children }) => <div>{children}</div>,
+    ResponsiveContainer: ({ children }) => React.cloneElement(children, { width: 500, height: 220 }),
   };
 });
 
@@ -192,6 +195,127 @@ describe('NaraAnalytics medical range buttons', () => {
     fireEvent.click(screen.getAllByText('7d')[1]);
     // main chart still renders (default 30d) — no crash, label reflects medical only
     expect(screen.getByText(/medical · last 7 days/i)).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Root container sizing
+// ---------------------------------------------------------------------------
+
+describe('NaraAnalytics root container', () => {
+  it('has an explicit width so a flex parent cannot shrink-wrap it', () => {
+    // #root is a column flexbox; with margin:auto and no width, the app would
+    // size to its widest row and re-width on every paging label change.
+    const { container } = render(<NaraAnalytics />);
+    const root = container.firstChild;
+    expect(root.style.width).toBe('100%');
+    expect(root.style.boxSizing).toBe('border-box');
+    expect(root.style.maxWidth).toBe('900px');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Window paging
+// ---------------------------------------------------------------------------
+
+describe('NaraAnalytics window paging', () => {
+  const daysAgo = (n) => String(Date.now() - n * 86400000);
+  const medicalAt = (key, epoch) => sampleRecord({
+    '_activityKey': key,
+    'Type': 'Medical',
+    'Start Date/time (Epoch)': epoch,
+    '[Medical] Temperature': '99.1',
+    '[Medical] Temperature Unit': 'F',
+  });
+
+  beforeEach(() => {
+    const records = [
+      sampleRecord(),                          // Sleep, ~now
+      medicalAt('key-med-1', daysAgo(1)),      // inside the current 7d window
+      medicalAt('key-med-2', daysAgo(10)),     // one page back
+    ];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ records, meta: { count: 3, lastImport: 'now' } }));
+  });
+
+  // Arrow order in the DOM: [0] = main chart, [1] = medical chart
+
+  it('forward arrows are disabled at the current window', () => {
+    render(<NaraAnalytics />);
+    screen.getAllByLabelText('later').forEach((b) => expect(b).toBeDisabled());
+  });
+
+  it('main back arrow is disabled when the window already covers all data', () => {
+    render(<NaraAnalytics />);
+    // default 30d window reaches past the oldest record (10 days ago)
+    expect(screen.getAllByLabelText('earlier')[0]).toBeDisabled();
+  });
+
+  it('paging the medical chart back shows the window dates, forward returns', () => {
+    render(<NaraAnalytics />);
+    const medBack = screen.getAllByLabelText('earlier')[1];
+    expect(medBack).toBeEnabled(); // data exists 10 days ago
+    fireEvent.click(medBack);
+
+    expect(screen.getByText(/medical · \d{2}\/\d{2} – \d{2}\/\d{2}/)).toBeInTheDocument();
+
+    const medFwd = screen.getAllByLabelText('later')[1];
+    expect(medFwd).toBeEnabled();
+    fireEvent.click(medFwd);
+    expect(screen.getByText(/medical · last 7 days/i)).toBeInTheDocument();
+  });
+
+  it('selecting a range resets the offset to the current window', () => {
+    render(<NaraAnalytics />);
+    fireEvent.click(screen.getAllByLabelText('earlier')[1]);
+    fireEvent.click(screen.getAllByText('14d')[1]);
+    expect(screen.getByText(/medical · last 14 days/i)).toBeInTheDocument();
+    expect(screen.getAllByLabelText('later')[1]).toBeDisabled();
+  });
+
+  it('"All" disables both arrows', () => {
+    render(<NaraAnalytics />);
+    fireEvent.click(screen.getAllByText('All')[1]);
+    expect(screen.getAllByLabelText('earlier')[1]).toBeDisabled();
+    expect(screen.getAllByLabelText('later')[1]).toBeDisabled();
+  });
+
+  it('paging the medical chart does not affect the main chart', () => {
+    render(<NaraAnalytics />);
+    fireEvent.click(screen.getAllByLabelText('earlier')[1]);
+    // main chart still at offset 0: its forward arrow stays disabled
+    expect(screen.getAllByLabelText('later')[0]).toBeDisabled();
+  });
+
+  it('medical chart keeps its axes on a page with no data', () => {
+    // 20-day-old record leaves the 7–14 day page empty but ◀ enabled
+    const records = [sampleRecord(), medicalAt('key-med-old', daysAgo(20))];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ records, meta: { count: 2, lastImport: 'now' } }));
+
+    render(<NaraAnalytics />);
+    fireEvent.click(screen.getAllByLabelText('earlier')[1]);
+
+    expect(screen.getByText(/medical · \d{2}\/\d{2} – \d{2}\/\d{2}/)).toBeInTheDocument();
+    // y-axis temperature ticks still render despite zero data points
+    expect(screen.getAllByText('97°').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('105°').length).toBeGreaterThan(0);
+  });
+
+  it('main chart keeps its axes on a page with no data', () => {
+    const records = [
+      sampleRecord(),
+      sampleRecord({ '_activityKey': 'key-old', 'Start Date/time (Epoch)': daysAgo(20) }),
+    ];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ records, meta: { count: 2, lastImport: 'now' } }));
+
+    render(<NaraAnalytics />);
+    fireEvent.click(screen.getByText('7d')); // no medical section: single button set
+    fireEvent.click(screen.getByLabelText('earlier')); // 7–14d page: empty
+
+    expect(screen.queryByText(/no data in this window/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/import a nara csv export/i)).not.toBeInTheDocument();
+    // the filled window still produces x-axis day ticks
+    const ticks = document.querySelectorAll('.recharts-cartesian-axis-tick');
+    expect(ticks.length).toBeGreaterThan(0);
   });
 });
 

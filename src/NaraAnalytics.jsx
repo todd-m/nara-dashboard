@@ -17,6 +17,7 @@ import {
 } from "recharts";
 import {
   STORAGE_KEY, aggregateByDay, aggregateMedical, loadFromStorage, saveToStorage,
+  timeWindow, earliestEpoch, formatDay, formatWindow, fillMissingDays,
 } from "./helpers.js";
 
 // ---------------------------------------------------------------------------
@@ -108,9 +109,29 @@ function useDarkMode() {
 // Shared controls
 // ---------------------------------------------------------------------------
 
-function RangeButtons({ ranges, value, onChange, theme }) {
+/**
+ * Range pills flanked by ◀/▶ pager arrows. Paging moves the window back and
+ * forth by its own length; selecting a range resets to the current window.
+ * `minEpoch` (earliest relevant record) gates how far back ◀ can go.
+ */
+function WindowControls({ ranges, value, onChange, offset, onOffsetChange, windowStart, minEpoch, theme }) {
+  const isAll = value === "all";
+  const canBack = !isAll && minEpoch != null && windowStart > minEpoch;
+  const canFwd  = !isAll && offset > 0;
+
+  const arrowStyle = (enabled) => ({
+    padding: "4px 8px", fontSize: 12, borderRadius: 6,
+    border: `1px solid ${theme.border}`,
+    background: theme.btnBg,
+    color: enabled ? theme.textMuted : theme.textFaintest,
+    cursor: enabled ? "pointer" : "default",
+  });
+
   return (
     <div style={{ display: "flex", gap: 3 }}>
+      <button aria-label="earlier" disabled={!canBack} onClick={() => onOffsetChange(offset + 1)} style={arrowStyle(canBack)}>
+        ◀
+      </button>
       {ranges.map((r) => (
         <button key={r.v} onClick={() => onChange(r.v)}
           style={{
@@ -124,6 +145,9 @@ function RangeButtons({ ranges, value, onChange, theme }) {
           {r.l}
         </button>
       ))}
+      <button aria-label="later" disabled={!canFwd} onClick={() => onOffsetChange(offset - 1)} style={arrowStyle(canFwd)}>
+        ▶
+      </button>
     </div>
   );
 }
@@ -134,6 +158,9 @@ function RangeButtons({ ranges, value, onChange, theme }) {
 
 export function ChartTip({ active, payload, label, theme = LIGHT }) {
   if (!active || !payload?.length) return null;
+  // Filled-but-empty days carry null values — show nothing for them
+  const rows = payload.filter((p) => p.value != null);
+  if (!rows.length) return null;
   return (
     <div style={{
       background: theme.tooltipBg,
@@ -144,7 +171,7 @@ export function ChartTip({ active, payload, label, theme = LIGHT }) {
       boxShadow: `0 2px 8px ${theme.tooltipShadow}`,
     }}>
       <div style={{ color: theme.textMuted, marginBottom: 6 }}>{label}</div>
-      {payload.map((p) => {
+      {rows.map((p) => {
         const s = SERIES.find((s) => s.key === p.dataKey);
         return (
           <div key={p.dataKey} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
@@ -221,7 +248,9 @@ export default function NaraAnalytics() {
   const [meta, setMeta]       = useState(persisted.meta);
   const [active, setActive]   = useState(["sleep_hours", "feed_count"]);
   const [range, setRange]     = useState("30");
+  const [rangeOffset, setRangeOffset] = useState(0);
   const [medRange, setMedRange] = useState("7");
+  const [medOffset, setMedOffset] = useState(0);
   const [profile, setProfile] = useState("all");
   const [importing, setImporting] = useState(false);
   const [toast, setToast]     = useState(null);
@@ -241,15 +270,36 @@ export default function NaraAnalytics() {
     [records, profile]
   );
 
-  const filtered = useMemo(() => {
-    if (range === "all") return byProfile;
-    const cutoff = now - parseInt(range) * 86400000;
-    return byProfile.filter(
-      (r) => parseInt(r["Start Date/time (Epoch)"] || "0") >= cutoff
-    );
-  }, [byProfile, range, now]);
+  // "all" is a pass-through (no pagination, and records with missing epochs
+  // are kept); every other range filters to the paged window.
+  const mainWindow = useMemo(
+    () => range === "all"
+      ? null
+      : timeWindow(byProfile, { days: parseInt(range), offset: rangeOffset, now }),
+    [byProfile, range, rangeOffset, now]
+  );
 
-  const chartData = useMemo(() => aggregateByDay(filtered), [filtered]);
+  const filtered = useMemo(() => {
+    if (!mainWindow) return byProfile;
+    return byProfile.filter((r) => {
+      const e = parseInt(r["Start Date/time (Epoch)"] || "0");
+      return e >= mainWindow.start && e <= mainWindow.end;
+    });
+  }, [byProfile, mainWindow]);
+
+  // Pad windowed views to one row per calendar day so the x-axis (and its
+  // ticks) reflects the full window even when days — or the whole page —
+  // have no data. "All" stays data-only.
+  const chartData = useMemo(() => {
+    const days = aggregateByDay(filtered);
+    return mainWindow ? fillMissingDays(days, mainWindow.start, mainWindow.end) : days;
+  }, [filtered, mainWindow]);
+
+  const mainMinEpoch = useMemo(() => earliestEpoch(byProfile, now), [byProfile, now]);
+  const medMinEpoch = useMemo(
+    () => earliestEpoch(byProfile.filter((r) => r["Type"] === "Medical"), now),
+    [byProfile, now]
+  );
 
   const hasMedical = useMemo(
     () => byProfile.some((r) => r["Type"] === "Medical"),
@@ -258,9 +308,13 @@ export default function NaraAnalytics() {
 
   const medicalData = useMemo(
     () => hasMedical
-      ? aggregateMedical(byProfile, { days: medRange === "all" ? "all" : parseInt(medRange), now })
+      ? aggregateMedical(byProfile, {
+          days: medRange === "all" ? "all" : parseInt(medRange),
+          offset: medOffset,
+          now,
+        })
       : { temps: [], meds: [], domain: [now - 7 * 86400000, now], dayTicks: [] },
-    [byProfile, hasMedical, medRange, now]
+    [byProfile, hasMedical, medRange, medOffset, now]
   );
 
   const stats = useMemo(() => {
@@ -322,6 +376,16 @@ export default function NaraAnalytics() {
     });
   }
 
+  function changeRange(v) {
+    setRange(v);
+    setRangeOffset(0);
+  }
+
+  function changeMedRange(v) {
+    setMedRange(v);
+    setMedOffset(0);
+  }
+
   function toggleSeries(key) {
     setActive((prev) =>
       prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
@@ -345,7 +409,11 @@ export default function NaraAnalytics() {
   };
 
   return (
-    <div style={{ fontFamily: "system-ui, sans-serif", maxWidth: 900, margin: "0 auto", padding: "2rem 1rem", background: t.bg, color: t.text, minHeight: "100vh" }}>
+    // width + border-box are load-bearing: #root is a column flexbox, and a
+    // flex item with cross-axis auto margins shrink-wraps to its content
+    // width unless given an explicit width — making the whole app (and the
+    // ResponsiveContainer charts) re-width whenever the controls row changes.
+    <div style={{ fontFamily: "system-ui, sans-serif", width: "100%", boxSizing: "border-box", maxWidth: 900, margin: "0 auto", padding: "2rem 1rem", background: t.bg, color: t.text, minHeight: "100vh" }}>
 
       {/* Header */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: "1.5rem" }}>
@@ -417,13 +485,25 @@ export default function NaraAnalytics() {
             );
           })}
         </div>
-        <RangeButtons ranges={RANGES} value={range} onChange={setRange} theme={t} />
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {rangeOffset > 0 && mainWindow && (
+            <span style={{ fontSize: 12, color: t.textFaint }}>
+              {formatWindow(mainWindow.start, mainWindow.end)}
+            </span>
+          )}
+          <WindowControls
+            ranges={RANGES} value={range} onChange={changeRange}
+            offset={rangeOffset} onOffsetChange={setRangeOffset}
+            windowStart={mainWindow ? mainWindow.start : 0} minEpoch={mainMinEpoch}
+            theme={t}
+          />
+        </div>
       </div>
 
       {/* Chart */}
-      {chartData.length === 0 ? (
+      {byProfile.length === 0 || chartData.length === 0 ? (
         <div style={{ border: `1px dashed ${t.borderStrong}`, borderRadius: 12, padding: "3rem", textAlign: "center", color: t.textFaint, fontSize: 14 }}>
-          import a nara csv export to get started
+          {byProfile.length ? "no data in this window" : "import a nara csv export to get started"}
         </div>
       ) : (
         <div style={{ height: 320, ...card }}>
@@ -448,9 +528,18 @@ export default function NaraAnalytics() {
         <div style={{ marginTop: "1.5rem" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: "0.75rem" }}>
             <div style={{ fontSize: 12, color: t.textFaint }}>
-              medical · {medRange === "all" ? "all time" : `last ${medRange} days`}
+              medical · {
+                medRange === "all" ? "all time"
+                : medOffset > 0 ? formatWindow(medicalData.domain[0], medicalData.domain[1])
+                : `last ${medRange} days`
+              }
             </div>
-            <RangeButtons ranges={MED_RANGES} value={medRange} onChange={setMedRange} theme={t} />
+            <WindowControls
+              ranges={MED_RANGES} value={medRange} onChange={changeMedRange}
+              offset={medOffset} onOffsetChange={setMedOffset}
+              windowStart={medicalData.domain[0]} minEpoch={medMinEpoch}
+              theme={t}
+            />
           </div>
           <div style={{ height: 220, ...card }}>
             <ResponsiveContainer width="100%" height="100%">
@@ -462,10 +551,7 @@ export default function NaraAnalytics() {
                   scale="time"
                   domain={medicalData.domain}
                   ticks={medicalData.dayTicks}
-                  tickFormatter={(v) => {
-                    const d = new Date(v);
-                    return `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
-                  }}
+                  tickFormatter={formatDay}
                   tick={{ fontSize: 11, fill: t.text, fontWeight: 500 }}
                   tickLine={{ stroke: t.textMuted, strokeWidth: 1 }}
                   axisLine={{ stroke: t.axisLine }}
@@ -485,6 +571,14 @@ export default function NaraAnalytics() {
                 ))}
                 <ReferenceLine y={100} stroke={t.refLine100} strokeWidth={1} strokeDasharray="4 3" />
                 <Tooltip content={(p) => <MedicalChartTip theme={t} {...p} />} cursor={false} animationDuration={0} />
+                {/* Invisible anchor: recharts drops axes/ticks/reference lines
+                    entirely when every series is empty, so keep one no-op
+                    point in-domain (renders nothing, no hover hit-area). */}
+                <Scatter
+                  data={[{ x: medicalData.domain[0], y: 96 }]}
+                  shape={() => null}
+                  isAnimationActive={false}
+                />
                 <Scatter
                   data={medicalData.temps}
                   shape={(p) => <circle cx={p.cx} cy={p.cy} r={5} fill="#ef4444" stroke={t.surface} strokeWidth={1.5} />}

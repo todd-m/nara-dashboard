@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   toOz, toF, formatEpoch, formatDay, formatWindow,
-  aggregateByDay, aggregateMedical, fillMissingDays,
+  aggregateByDay, aggregateMedical, fillMissingDays, parseMedication,
   timeWindow, windowTicks, earliestEpoch,
   loadFromStorage, saveToStorage, STORAGE_KEY,
 } from '../helpers.js';
@@ -238,6 +238,36 @@ describe('formatDay / formatWindow', () => {
 });
 
 // ---------------------------------------------------------------------------
+// parseMedication
+// ---------------------------------------------------------------------------
+
+describe('parseMedication', () => {
+  it('parses the standard "name, dose (UNIT)" format', () => {
+    expect(parseMedication("Children's Tylenol, 1.5 (ML)"))
+      .toEqual({ name: "Children's Tylenol", dose: 1.5, unit: 'ML' });
+  });
+
+  it('keeps commas inside the name; only the trailing dose is split off', () => {
+    expect(parseMedication('Tylenol, Extra Strength, 2.5 (ML)'))
+      .toEqual({ name: 'Tylenol, Extra Strength', dose: 2.5, unit: 'ML' });
+  });
+
+  it('parses integer doses', () => {
+    expect(parseMedication('Motrin, 5 (ML)'))
+      .toEqual({ name: 'Motrin', dose: 5, unit: 'ML' });
+  });
+
+  it('falls back to name-only for strings without a dose', () => {
+    expect(parseMedication('Tylenol')).toEqual({ name: 'Tylenol', dose: null, unit: null });
+  });
+
+  it('handles empty and missing input', () => {
+    expect(parseMedication('')).toEqual({ name: '', dose: null, unit: null });
+    expect(parseMedication(undefined)).toEqual({ name: '', dose: null, unit: null });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // earliestEpoch
 // ---------------------------------------------------------------------------
 
@@ -427,7 +457,21 @@ describe('aggregateMedical', () => {
     expect(aggregateMedical(records).temps).toHaveLength(0);
   });
 
-  it('adds medication records at y=96.5', () => {
+  it('plots medication at its parsed dose on the y (dose) axis', () => {
+    const records = [{
+      Type: 'Medical',
+      'Start Date/time (Epoch)': String(withinWindow),
+      '[Medical] Medication': "Children's Tylenol, 1.5 (ML)",
+    }];
+    const { meds } = aggregateMedical(records);
+    expect(meds).toHaveLength(1);
+    expect(meds[0].y).toBe(1.5);
+    expect(meds[0].dose).toBe(1.5);
+    expect(meds[0].dose_unit).toBe('ML');
+    expect(meds[0].med_name).toBe("Children's Tylenol");
+  });
+
+  it('puts doseless medications on the baseline (y=0)', () => {
     const records = [{
       Type: 'Medical',
       'Start Date/time (Epoch)': String(withinWindow),
@@ -435,8 +479,20 @@ describe('aggregateMedical', () => {
     }];
     const { meds } = aggregateMedical(records);
     expect(meds).toHaveLength(1);
-    expect(meds[0].y).toBe(96.5);
+    expect(meds[0].y).toBe(0);
+    expect(meds[0].dose).toBeNull();
     expect(meds[0].med_name).toBe('Tylenol');
+  });
+
+  it('computes doseDomain with headroom over the max dose, floor of 2', () => {
+    const med = (dose) => ({
+      Type: 'Medical',
+      'Start Date/time (Epoch)': String(withinWindow),
+      '[Medical] Medication': `Motrin, ${dose} (ML)`,
+    });
+    expect(aggregateMedical([med(4)]).doseDomain).toEqual([0, 5]);
+    expect(aggregateMedical([med(1)]).doseDomain).toEqual([0, 2]);
+    expect(aggregateMedical([]).doseDomain).toEqual([0, 2]);
   });
 
   it('generates dayTicks at midnight boundaries', () => {

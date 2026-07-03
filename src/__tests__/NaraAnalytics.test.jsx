@@ -286,6 +286,21 @@ describe('NaraAnalytics window paging', () => {
     expect(screen.getAllByLabelText('later')[0]).toBeDisabled();
   });
 
+  it('renders the right-side dosage axis in mL and the triangle at its dose', () => {
+    const records = [sampleRecord(), sampleRecord({
+      '_activityKey': 'key-med-dose',
+      'Type': 'Medical',
+      'Start Date/time (Epoch)': daysAgo(1),
+      '[Medical] Medication': "Children's Tylenol, 1.5 (ML)",
+    })];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ records, meta: { count: 2, lastImport: 'now' } }));
+
+    render(<NaraAnalytics />);
+    // doseDomain floor is [0, 2] → integer ticks 1..2
+    expect(screen.getAllByText('2 mL').length).toBeGreaterThan(0);
+    expect(document.querySelectorAll('rect[fill="#8b5cf6"]').length).toBe(1);
+  });
+
   it('medical chart keeps its axes on a page with no data', () => {
     // 20-day-old record leaves the 7–14 day page empty but ◀ enabled
     const records = [sampleRecord(), medicalAt('key-med-old', daysAgo(20))];

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { ChartTip, MedDot, MedicalChartTip } from '../NaraAnalytics.jsx';
+import { ScatterChart, Scatter, XAxis, YAxis } from 'recharts';
+import { ChartTip, MedBar, MedicalChartTip } from '../NaraAnalytics.jsx';
 
 // ---------------------------------------------------------------------------
 // ChartTip
@@ -58,28 +59,53 @@ describe('ChartTip', () => {
 });
 
 // ---------------------------------------------------------------------------
-// MedDot
+// MedBar
 // ---------------------------------------------------------------------------
 
-describe('MedDot', () => {
-  it('renders a transparent hit-area circle', () => {
-    const { container } = render(<svg><MedDot cx={50} cy={50} /></svg>);
-    const circle = container.querySelector('circle');
-    expect(circle).toBeInTheDocument();
-    expect(circle).toHaveAttribute('fill', 'transparent');
+// MedBar reads the dose axis scale via a recharts hook, so it needs a real
+// chart around it
+const renderMedBars = (data) => render(
+  <ScatterChart width={400} height={200}>
+    <XAxis dataKey="x" type="number" domain={[0, 10]} ticks={[0, 5, 10]} />
+    <YAxis yAxisId="dose" dataKey="y" type="number" orientation="right" domain={[0, 4]} ticks={[1, 2, 3, 4]} />
+    <Scatter yAxisId="dose" data={data} shape={<MedBar />} isAnimationActive={false} />
+  </ScatterChart>
+);
+
+describe('MedBar', () => {
+  const bars = (container) => [...container.querySelectorAll('rect[fill="#8b5cf6"]')];
+  const hits = (container) => [...container.querySelectorAll('rect[fill="transparent"]')];
+
+  it('draws a bar from the baseline up to the dose value', () => {
+    const { container } = renderMedBars([{ x: 5, y: 2 }, { x: 8, y: 4 }]);
+    const [half, full] = bars(container);
+    expect(half).toBeDefined();
+    expect(full).toBeDefined();
+    const bottom = (r) => parseFloat(r.getAttribute('y')) + parseFloat(r.getAttribute('height'));
+    // both bars share the baseline; the y=4 bar is twice as tall as the y=2 bar
+    expect(bottom(half)).toBeCloseTo(bottom(full), 1);
+    expect(parseFloat(full.getAttribute('height')))
+      .toBeCloseTo(2 * parseFloat(half.getAttribute('height')), 0);
   });
 
-  it('renders a purple polygon triangle', () => {
-    const { container } = render(<svg><MedDot cx={50} cy={50} /></svg>);
-    const polygon = container.querySelector('polygon');
-    expect(polygon).toBeInTheDocument();
-    expect(polygon).toHaveAttribute('fill', '#8b5cf6');
+  it('renders a 3px stub for zero/doseless entries', () => {
+    const { container } = renderMedBars([{ x: 5, y: 0 }]);
+    const [stub] = bars(container);
+    expect(parseFloat(stub.getAttribute('height'))).toBe(3);
   });
 
-  it('circle has pointerEvents all, polygon has pointerEvents none', () => {
-    const { container } = render(<svg><MedDot cx={50} cy={50} /></svg>);
-    expect(container.querySelector('circle')).toHaveAttribute('pointer-events', 'all');
-    expect(container.querySelector('polygon')).toHaveAttribute('pointer-events', 'none');
+  it('renders a transparent hit rect covering the bar', () => {
+    const { container } = renderMedBars([{ x: 5, y: 2 }]);
+    const [hit] = hits(container);
+    const [bar] = bars(container);
+    expect(hit).toBeDefined();
+    expect(parseFloat(hit.getAttribute('height'))).toBeGreaterThan(parseFloat(bar.getAttribute('height')));
+  });
+
+  it('hit rect catches pointer events, visible bar does not', () => {
+    const { container } = renderMedBars([{ x: 5, y: 2 }]);
+    expect(hits(container)[0]).toHaveAttribute('pointer-events', 'all');
+    expect(bars(container)[0]).toHaveAttribute('pointer-events', 'none');
   });
 });
 
@@ -106,10 +132,16 @@ describe('MedicalChartTip', () => {
   });
 
   it('renders a medication row with time and name', () => {
-    const payload = [{ payload: { lbl: '05/14 10:00', y: 96.5, med_name: 'Tylenol' } }];
+    const payload = [{ payload: { lbl: '05/14 10:00', y: 0, med_name: 'Tylenol' } }];
     render(<MedicalChartTip active={true} payload={payload} />);
     expect(screen.getByText('05/14 10:00')).toBeInTheDocument();
     expect(screen.getByText('Tylenol')).toBeInTheDocument();
+  });
+
+  it('appends the dose when present, normalizing ML to mL', () => {
+    const payload = [{ payload: { lbl: '05/14 10:00', y: 1.5, med_name: "Children's Tylenol", dose: 1.5, dose_unit: 'ML' } }];
+    render(<MedicalChartTip active={true} payload={payload} />);
+    expect(screen.getByText("Children's Tylenol · 1.5 mL")).toBeInTheDocument();
   });
 
   it('deduplicates identical payload entries', () => {

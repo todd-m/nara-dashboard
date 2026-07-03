@@ -166,6 +166,15 @@ export function fillMissingDays(days, start, end) {
   return filled;
 }
 
+// Nara embeds the dose in the medication string: "Children's Tylenol, 1.5 (ML)".
+// Greedy name group keeps commas inside the name; only the trailing
+// ", <number> (<unit>)" is treated as the dose.
+export function parseMedication(raw) {
+  const m = /^(.+),\s*(\d*\.?\d+)\s*\(([^)]*)\)\s*$/.exec(raw ?? "");
+  if (!m) return { name: (raw ?? "").trim(), dose: null, unit: null };
+  return { name: m[1].trim(), dose: parseFloat(m[2]), unit: m[3].trim() };
+}
+
 export function aggregateMedical(records, { days = 7, offset = 0, now = Date.now() } = {}) {
   const medicals = records.filter((r) => r["Type"] === "Medical");
   const { start, end } = timeWindow(medicals, { days, offset, now });
@@ -183,11 +192,18 @@ export function aggregateMedical(records, { days = 7, offset = 0, now = Date.now
       if (f !== null) temps.push({ x: epoch, y: f, lbl: formatEpoch(epoch) });
     }
     if (r["[Medical] Medication"]) {
-      meds.push({ x: epoch, y: 96.5, lbl: formatEpoch(epoch), med_name: r["[Medical] Medication"] });
+      const { name, dose, unit } = parseMedication(r["[Medical] Medication"]);
+      // y is the dose in mL (right axis); doseless entries sit on the baseline
+      meds.push({ x: epoch, y: dose ?? 0, lbl: formatEpoch(epoch), med_name: name, dose, dose_unit: unit });
     }
   });
 
-  return { temps, meds, domain: [start, end], dayTicks: windowTicks(start, end) };
+  const maxDose = meds.reduce((m, d) => Math.max(m, d.dose ?? 0), 0);
+  // Headroom above the tallest triangle; floor of 2 keeps the axis sane when
+  // the window has no doses
+  const doseDomain = [0, Math.max(2, Math.ceil(maxDose * 1.25))];
+
+  return { temps, meds, domain: [start, end], dayTicks: windowTicks(start, end), doseDomain };
 }
 
 export function loadFromStorage() {

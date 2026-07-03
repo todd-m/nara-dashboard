@@ -13,7 +13,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import Papa from "papaparse";
 import {
   ComposedChart, ScatterChart, Bar, Line, Scatter, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, ReferenceLine,
+  Tooltip, ResponsiveContainer, ReferenceLine, useYAxisScale,
 } from "recharts";
 import {
   STORAGE_KEY, aggregateByDay, aggregateMedical, loadFromStorage, saveToStorage,
@@ -187,16 +187,22 @@ export function ChartTip({ active, payload, label, theme = LIGHT }) {
   );
 }
 
-export function MedDot({ cx, cy }) {
+/**
+ * Bar from the dose axis baseline up to the dose value. Must be passed to
+ * Scatter as an element (`shape={<MedBar />}`) — recharts clones elements,
+ * which makes this a real component instance so the hook is legal.
+ */
+export function MedBar({ cx, cy }) {
+  const toPixel = useYAxisScale("dose");
+  if (cx == null || cy == null || toPixel == null) return null;
+  const baseline = toPixel(0);
+  // 3px stub keeps doseless (y=0) meds visible and hoverable
+  const height = Math.max(baseline - cy, 3);
+  const top = baseline - height;
   return (
     <g>
-      <circle cx={cx} cy={cy} r={9} fill="transparent" pointerEvents="all" />
-      <polygon
-        points={`${cx},${cy - 6} ${cx - 5},${cy + 4} ${cx + 5},${cy + 4}`}
-        fill="#8b5cf6"
-        opacity={0.85}
-        pointerEvents="none"
-      />
+      <rect x={cx - 8} y={top - 4} width={16} height={height + 8} fill="transparent" pointerEvents="all" />
+      <rect x={cx - 3.5} y={top} width={7} height={height} rx={2} fill="#8b5cf6" opacity={0.85} pointerEvents="none" />
     </g>
   );
 }
@@ -224,7 +230,10 @@ export function MedicalChartTip({ active, payload, theme = LIGHT }) {
         <div key={`m-${i}`} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
           <span style={{ width: 8, height: 8, borderRadius: 2, background: "#8b5cf6", flexShrink: 0 }} />
           <span style={{ color: theme.textMuted, width: 56 }}>{d.lbl}</span>
-          <span style={{ fontFamily: "monospace", fontWeight: 500, color: theme.text }}>{d.med_name}</span>
+          <span style={{ fontFamily: "monospace", fontWeight: 500, color: theme.text }}>
+            {d.med_name}
+            {d.dose != null && ` · ${d.dose} ${d.dose_unit?.toUpperCase() === "ML" ? "mL" : d.dose_unit ?? ""}`}
+          </span>
         </div>
       ) : (
         <div key={`t-${i}`} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
@@ -313,7 +322,7 @@ export default function NaraAnalytics() {
           offset: medOffset,
           now,
         })
-      : { temps: [], meds: [], domain: [now - 7 * 86400000, now], dayTicks: [] },
+      : { temps: [], meds: [], domain: [now - 7 * 86400000, now], dayTicks: [], doseDomain: [0, 2] },
     [byProfile, hasMedical, medRange, medOffset, now]
   );
 
@@ -557,6 +566,7 @@ export default function NaraAnalytics() {
                   axisLine={{ stroke: t.axisLine }}
                 />
                 <YAxis
+                  yAxisId="temp"
                   dataKey="y"
                   type="number"
                   domain={[96, 105]}
@@ -566,27 +576,43 @@ export default function NaraAnalytics() {
                   axisLine={false}
                   tickFormatter={(v) => `${v}°`}
                 />
+                <YAxis
+                  yAxisId="dose"
+                  dataKey="y"
+                  type="number"
+                  orientation="right"
+                  domain={medicalData.doseDomain}
+                  ticks={Array.from({ length: medicalData.doseDomain[1] }, (_, i) => i + 1)}
+                  width={52}
+                  tick={{ fontSize: 11, fill: "#8b5cf6" }}
+                  tickLine={false}
+                  axisLine={false}
+                  tickFormatter={(v) => `${v} mL`}
+                />
                 {medicalData.dayTicks.map((tick) => (
-                  <ReferenceLine key={tick} x={tick} stroke={t.gridLine} strokeWidth={1} />
+                  <ReferenceLine key={tick} x={tick} yAxisId="temp" stroke={t.gridLine} strokeWidth={1} />
                 ))}
-                <ReferenceLine y={100} stroke={t.refLine100} strokeWidth={1} strokeDasharray="4 3" />
+                <ReferenceLine y={100} yAxisId="temp" stroke={t.refLine100} strokeWidth={1} strokeDasharray="4 3" />
                 <Tooltip content={(p) => <MedicalChartTip theme={t} {...p} />} cursor={false} animationDuration={0} />
                 {/* Invisible anchor: recharts drops axes/ticks/reference lines
                     entirely when every series is empty, so keep one no-op
                     point in-domain (renders nothing, no hover hit-area). */}
                 <Scatter
+                  yAxisId="temp"
                   data={[{ x: medicalData.domain[0], y: 96 }]}
                   shape={() => null}
                   isAnimationActive={false}
                 />
                 <Scatter
+                  yAxisId="temp"
                   data={medicalData.temps}
                   shape={(p) => <circle cx={p.cx} cy={p.cy} r={5} fill="#ef4444" stroke={t.surface} strokeWidth={1.5} />}
                   isAnimationActive={false}
                 />
                 <Scatter
+                  yAxisId="dose"
                   data={medicalData.meds}
-                  shape={(p) => <MedDot {...p} />}
+                  shape={<MedBar />}
                   isAnimationActive={false}
                 />
               </ScatterChart>

@@ -2,7 +2,8 @@
 
 ## Recent changes
 
-- _(uncommitted)_ — Standards alignment (`~/Projects/standards/STANDARDS.md`): coverage threshold (80% lines) in `vite.config.js`, Makefile standard verbs (`help/install/lint/clean`; `lint` now part of `make ci`), GitHub Actions CI. React fixes for the react-hooks v7 rules: persisted-data load moved from mount effect to lazy `useState` initializers (no more empty first paint); `Date.now()` calls in render replaced with a `now` captured at mount ("last N days" windows are now fixed at page load — re-derive on import if that ever matters); `useDarkMode` creates its MediaQueryList inside the effect.
+- _(uncommitted)_ — Medical chart time-window selector: `aggregateMedical(records, { days, now })` accepts 7/14/30/`"all"` (`"all"` anchors at earliest medical record's midnight); `dayTicks` stepped to ~10 max; shared `RangeButtons` component used by both charts; `medRange` state + dynamic section label
+- `8cf1722` — Standards alignment (`~/Projects/standards/STANDARDS.md`): coverage threshold (80% lines) in `vite.config.js`, Makefile standard verbs (`help/install/lint/clean`; `lint` now part of `make ci`), GitHub Actions CI. React fixes for the react-hooks v7 rules: persisted-data load moved from mount effect to lazy `useState` initializers (no more empty first paint); `Date.now()` calls in render replaced with a `now` captured at mount ("last N days" windows are now fixed at page load — re-derive on import if that ever matters); `useDarkMode` creates its MediaQueryList inside the effect.
 - `a3853ee` — Dark mode: `LIGHT`/`DARK` theme tokens, `useDarkMode()` hook tracking `prefers-color-scheme`, theme applied to all inline styles, chart axes/grids, and tooltips
 - `a97a000` — Update CLAUDE.md and README to reflect test infrastructure
 - `cc76b17` — Add vitest + jsdom + istanbul test suite (68 tests); extract helpers to `src/helpers.js`; add `make test`
@@ -21,4 +22,3 @@
 ## Planned
 
 - Customize (for my use case and/or in general) the pills shown on the top chart
-- Add longer time windows on med chart

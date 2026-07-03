@@ -85,17 +85,28 @@ export function aggregateByDay(records) {
     }));
 }
 
-export function aggregateMedical(records) {
-  const now = Date.now();
-  const startDate = new Date(now - 7 * 24 * 3600 * 1000);
+const DAY_MS = 24 * 3600 * 1000;
+
+export function aggregateMedical(records, { days = 7, now = Date.now() } = {}) {
+  const medicals = records.filter((r) => r["Type"] === "Medical");
+
+  let windowStart;
+  if (days === "all") {
+    const epochs = medicals
+      .map((r) => parseInt(r["Start Date/time (Epoch)"]) || 0)
+      .filter((e) => e > 0 && e <= now);
+    windowStart = epochs.length ? Math.min(...epochs) : now - 7 * DAY_MS;
+  } else {
+    windowStart = now - days * DAY_MS;
+  }
+  const startDate = new Date(windowStart);
   startDate.setHours(0, 0, 0, 0);
   const start = startDate.getTime();
 
   const temps = [];
   const meds = [];
 
-  records.forEach((r) => {
-    if (r["Type"] !== "Medical") return;
+  medicals.forEach((r) => {
     const epoch = parseInt(r["Start Date/time (Epoch)"]) || 0;
     if (epoch < start || epoch > now) return;
 
@@ -109,8 +120,12 @@ export function aggregateMedical(records) {
     }
   });
 
+  // Step ticks so long windows stay readable (~10 ticks max): daily for
+  // 7d/14d, every 3rd day for 30d, wider for "all".
+  const windowDays = Math.ceil((now - start) / DAY_MS);
+  const stepMs = Math.max(1, Math.ceil(windowDays / 10)) * DAY_MS;
   const dayTicks = [];
-  for (let t = start; t <= now; t += 24 * 3600 * 1000) dayTicks.push(t);
+  for (let t = start; t <= now; t += stepMs) dayTicks.push(t);
 
   return { temps, meds, domain: [start, now], dayTicks };
 }

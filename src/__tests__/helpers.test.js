@@ -316,6 +316,69 @@ describe('aggregateMedical', () => {
     expect(temps).toHaveLength(0);
     expect(meds).toHaveLength(0);
   });
+
+  const tempRecord = (epoch) => ({
+    Type: 'Medical',
+    'Start Date/time (Epoch)': String(epoch),
+    '[Medical] Temperature': '37',
+    '[Medical] Temperature Unit': 'C',
+  });
+
+  it('a 14-day window includes records the 7-day window excludes', () => {
+    const records = [tempRecord(outsideWindow)]; // 10 days ago
+    expect(aggregateMedical(records).temps).toHaveLength(0);
+    expect(aggregateMedical(records, { days: 14 }).temps).toHaveLength(1);
+  });
+
+  it('a 30-day domain spans about 30 days', () => {
+    const { domain } = aggregateMedical([], { days: 30 });
+    expect(domain[1]).toBe(NOW);
+    const spanDays = (NOW - domain[0]) / 86400000;
+    expect(spanDays).toBeGreaterThanOrEqual(30);
+    expect(spanDays).toBeLessThanOrEqual(31);
+  });
+
+  it('"all" anchors the domain at the earliest medical record\'s midnight', () => {
+    const records = [tempRecord(outsideWindow), tempRecord(withinWindow)];
+    const { domain, temps } = aggregateMedical(records, { days: 'all' });
+    const start = new Date(domain[0]);
+    expect(start.getHours()).toBe(0);
+    // outsideWindow is NOW - 10d at 12:00, so its midnight is the anchor
+    expect(domain[0]).toBeLessThanOrEqual(outsideWindow);
+    expect(outsideWindow - domain[0]).toBeLessThan(86400000);
+    expect(temps).toHaveLength(2);
+  });
+
+  it('"all" ignores records with missing or future epochs when anchoring', () => {
+    const records = [
+      { Type: 'Medical', '[Medical] Temperature': '37', '[Medical] Temperature Unit': 'C' }, // no epoch → 0
+      tempRecord(NOW + 5 * 86400000), // future
+      tempRecord(withinWindow),
+    ];
+    const { domain } = aggregateMedical(records, { days: 'all' });
+    expect(withinWindow - domain[0]).toBeLessThan(86400000);
+  });
+
+  it('"all" with no medical records falls back to a 7-day window', () => {
+    const all = aggregateMedical([], { days: 'all' });
+    const week = aggregateMedical([], { days: 7 });
+    expect(all.domain).toEqual(week.domain);
+  });
+
+  it('steps dayTicks so a 30-day window has at most 11 ticks, still at midnight', () => {
+    const { dayTicks } = aggregateMedical([], { days: 30 });
+    expect(dayTicks.length).toBeLessThanOrEqual(11);
+    expect(dayTicks.length).toBeGreaterThanOrEqual(8);
+    dayTicks.forEach((t) => {
+      expect(new Date(t).getHours()).toBe(0);
+    });
+  });
+
+  it('respects an explicit now instead of Date.now()', () => {
+    const later = NOW + 86400000;
+    const { domain } = aggregateMedical([], { now: later });
+    expect(domain[1]).toBe(later);
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -40,6 +40,13 @@ const RANGES = [
   { v: "all", l: "All" },
 ];
 
+const MED_RANGES = [
+  { v: "7",   l: "7d"  },
+  { v: "14",  l: "14d" },
+  { v: "30",  l: "30d" },
+  { v: "all", l: "All" },
+];
+
 // ---------------------------------------------------------------------------
 // Theme
 // ---------------------------------------------------------------------------
@@ -95,6 +102,30 @@ function useDarkMode() {
     return () => mq.removeEventListener("change", handler);
   }, []);
   return dark;
+}
+
+// ---------------------------------------------------------------------------
+// Shared controls
+// ---------------------------------------------------------------------------
+
+function RangeButtons({ ranges, value, onChange, theme }) {
+  return (
+    <div style={{ display: "flex", gap: 3 }}>
+      {ranges.map((r) => (
+        <button key={r.v} onClick={() => onChange(r.v)}
+          style={{
+            padding: "4px 10px", fontSize: 12, borderRadius: 6,
+            border: `1px solid ${theme.border}`,
+            background: value === r.v ? theme.surface : theme.btnBg,
+            color: value === r.v ? theme.text : theme.textMuted,
+            fontWeight: value === r.v ? 600 : 400,
+            cursor: "pointer",
+          }}>
+          {r.l}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -190,6 +221,7 @@ export default function NaraAnalytics() {
   const [meta, setMeta]       = useState(persisted.meta);
   const [active, setActive]   = useState(["sleep_hours", "feed_count"]);
   const [range, setRange]     = useState("30");
+  const [medRange, setMedRange] = useState("7");
   const [profile, setProfile] = useState("all");
   const [importing, setImporting] = useState(false);
   const [toast, setToast]     = useState(null);
@@ -225,8 +257,10 @@ export default function NaraAnalytics() {
   );
 
   const medicalData = useMemo(
-    () => hasMedical ? aggregateMedical(byProfile) : { temps: [], meds: [], domain: [now - 7 * 86400000, now], dayTicks: [] },
-    [byProfile, hasMedical, now]
+    () => hasMedical
+      ? aggregateMedical(byProfile, { days: medRange === "all" ? "all" : parseInt(medRange), now })
+      : { temps: [], meds: [], domain: [now - 7 * 86400000, now], dayTicks: [] },
+    [byProfile, hasMedical, medRange, now]
   );
 
   const stats = useMemo(() => {
@@ -383,21 +417,7 @@ export default function NaraAnalytics() {
             );
           })}
         </div>
-        <div style={{ display: "flex", gap: 3 }}>
-          {RANGES.map((r) => (
-            <button key={r.v} onClick={() => setRange(r.v)}
-              style={{
-                padding: "4px 10px", fontSize: 12, borderRadius: 6,
-                border: `1px solid ${t.border}`,
-                background: range === r.v ? t.surface : t.btnBg,
-                color: range === r.v ? t.text : t.textMuted,
-                fontWeight: range === r.v ? 600 : 400,
-                cursor: "pointer",
-              }}>
-              {r.l}
-            </button>
-          ))}
-        </div>
+        <RangeButtons ranges={RANGES} value={range} onChange={setRange} theme={t} />
       </div>
 
       {/* Chart */}
@@ -426,8 +446,11 @@ export default function NaraAnalytics() {
       {/* Medical chart */}
       {hasMedical && (
         <div style={{ marginTop: "1.5rem" }}>
-          <div style={{ fontSize: 12, color: t.textFaint, marginBottom: "0.75rem" }}>
-            medical · last 7 days
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: "0.75rem" }}>
+            <div style={{ fontSize: 12, color: t.textFaint }}>
+              medical · {medRange === "all" ? "all time" : `last ${medRange} days`}
+            </div>
+            <RangeButtons ranges={MED_RANGES} value={medRange} onChange={setMedRange} theme={t} />
           </div>
           <div style={{ height: 220, ...card }}>
             <ResponsiveContainer width="100%" height="100%">

@@ -153,6 +153,49 @@ describe('NaraAnalytics range buttons', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Medical range buttons
+// ---------------------------------------------------------------------------
+
+describe('NaraAnalytics medical range buttons', () => {
+  const medicalRecord = () => sampleRecord({
+    '_activityKey': 'key-med-001',
+    'Type': 'Medical',
+    '[Medical] Temperature': '99.1',
+    '[Medical] Temperature Unit': 'F',
+  });
+
+  beforeEach(() => {
+    const records = [sampleRecord(), medicalRecord()];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ records, meta: { count: 2, lastImport: 'now' } }));
+  });
+
+  it('renders a second set of range buttons for the medical chart', () => {
+    render(<NaraAnalytics />);
+    expect(screen.getByText(/medical · last 7 days/i)).toBeInTheDocument();
+    // one per chart: main controls + medical controls
+    expect(screen.getAllByText('7d')).toHaveLength(2);
+    expect(screen.getAllByText('All')).toHaveLength(2);
+  });
+
+  it('clicking a medical range updates the section label', () => {
+    render(<NaraAnalytics />);
+    // medical buttons render after the main chart's in the DOM
+    fireEvent.click(screen.getAllByText('14d')[1]);
+    expect(screen.getByText(/medical · last 14 days/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByText('All')[1]);
+    expect(screen.getByText(/medical · all time/i)).toBeInTheDocument();
+  });
+
+  it('medical range does not affect the main chart range', () => {
+    render(<NaraAnalytics />);
+    fireEvent.click(screen.getAllByText('7d')[1]);
+    // main chart still renders (default 30d) — no crash, label reflects medical only
+    expect(screen.getByText(/medical · last 7 days/i)).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Clear data
 // ---------------------------------------------------------------------------
 

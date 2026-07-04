@@ -413,6 +413,36 @@ describe('NaraAnalytics CSV import', () => {
     expect(screen.getByText(/1 new records added/i)).toBeInTheDocument();
   });
 
+  it('refreshes the window reference time on import so newer-than-mount records appear', async () => {
+    vi.useFakeTimers();
+    const t0 = new Date('2026-07-03T08:00:00').getTime();
+    vi.setSystemTime(t0);
+
+    Papa.parse.mockImplementation((file, { complete }) => {
+      complete({ data: [sampleRecord({
+        '_activityKey': 'key-future-med',
+        'Type': 'Medical',
+        'Start Date/time (Epoch)': String(t0 + 3600000), // an hour after mount
+        '[Medical] Medication': 'Motrin, 2.5 (ML)',
+      })] });
+    });
+
+    render(<NaraAnalytics />); // mounts with now = t0
+    vi.setSystemTime(t0 + 7200000); // user imports two hours later
+
+    const input = document.querySelector('input[type="file"]');
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [new File([''], 't.csv')] } });
+    });
+
+    // without setNow on import, the record sits beyond the frozen window end
+    // and no bar renders
+    expect(document.querySelectorAll('rect[fill="#8b5cf6"]')).toHaveLength(1);
+
+    act(() => { vi.runAllTimers(); }); // flush the toast timeout
+    vi.useRealTimers();
+  });
+
   it('skips records missing _activityKey', async () => {
     Papa.parse.mockImplementation((file, { complete }) => {
       complete({ data: [{ Type: 'Sleep', 'Start Date/time': '2024-05-14 08:00' }] }); // no _activityKey

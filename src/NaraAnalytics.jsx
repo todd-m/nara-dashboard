@@ -263,8 +263,9 @@ export default function NaraAnalytics() {
   const [profile, setProfile] = useState("all");
   const [importing, setImporting] = useState(false);
   const [toast, setToast]     = useState(null);
-  // Reference time for "last N days" filters; fixed at mount so renders stay pure
-  const [now] = useState(() => Date.now());
+  // Reference time for "last N days" filters; captured at mount so renders
+  // stay pure, refreshed on import so windows include records newer than mount
+  const [now, setNow] = useState(() => Date.now());
   const fileRef = useRef();
 
   const t = useDarkMode() ? DARK : LIGHT;
@@ -376,6 +377,7 @@ export default function NaraAnalytics() {
         saveToStorage(merged, newMeta);
         setRecords(merged);
         setMeta(newMeta);
+        setNow(Date.now());
         setToast(`${added} new records added · ${merged.length} total`);
         setTimeout(() => setToast(null), 4000);
         setImporting(false);

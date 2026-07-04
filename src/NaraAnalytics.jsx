@@ -18,6 +18,7 @@ import {
 import {
   STORAGE_KEY, aggregateByDay, aggregateMedical, loadFromStorage, saveToStorage,
   timeWindow, earliestEpoch, formatDay, formatWindow, fillMissingDays,
+  avgByKey, medicalStats,
 } from "./helpers.js";
 
 // ---------------------------------------------------------------------------
@@ -46,6 +47,11 @@ const MED_RANGES = [
   { v: "14",  l: "14d" },
   { v: "30",  l: "30d" },
   { v: "all", l: "All" },
+];
+
+const MED_SERIES = [
+  { key: "temps", label: "Temp", color: "#ef4444" },
+  { key: "meds",  label: "Meds", color: "#8b5cf6" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -108,6 +114,40 @@ function useDarkMode() {
 // ---------------------------------------------------------------------------
 // Shared controls
 // ---------------------------------------------------------------------------
+
+function SeriesPill({ label, color, on, square = false, theme, onClick }) {
+  return (
+    <button onClick={onClick}
+      style={{
+        display: "flex", alignItems: "center", gap: 5,
+        padding: "4px 10px", fontSize: 12, borderRadius: 20,
+        border: `1px solid ${on ? color : theme.border}`,
+        color: on ? color : theme.textFaint,
+        background: on ? `${color}18` : theme.btnBg,
+        cursor: "pointer",
+      }}>
+      <span style={{ width: 7, height: 7, borderRadius: square ? 1 : 50, background: on ? color : theme.textFaintest, flexShrink: 0 }} />
+      {label}
+    </button>
+  );
+}
+
+function StatCard({ id, label, value, sub, theme }) {
+  return (
+    <div data-testid={`stat-card-${id}`} style={{ background: theme.surface, borderRadius: 8, padding: "10px 14px", border: `1px solid ${theme.border}` }}>
+      <div style={{ fontSize: 11, color: theme.textFaint, marginBottom: 4 }}>{label}</div>
+      <div style={{ fontFamily: "monospace", fontSize: 24, fontWeight: 600, lineHeight: 1, color: theme.text }}>{value}</div>
+      <div style={{ fontSize: 11, color: theme.textFaintest, marginTop: 4 }}>{sub}</div>
+    </div>
+  );
+}
+
+const statGrid = (marginBottom) => ({
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))",
+  gap: 10,
+  marginBottom,
+});
 
 /**
  * Range pills flanked by ◀/▶ pager arrows. Paging moves the window back and
@@ -260,6 +300,7 @@ export default function NaraAnalytics() {
   const [rangeOffset, setRangeOffset] = useState(0);
   const [medRange, setMedRange] = useState("7");
   const [medOffset, setMedOffset] = useState(0);
+  const [medActive, setMedActive] = useState(["temps", "meds"]);
   const [profile, setProfile] = useState("all");
   const [importing, setImporting] = useState(false);
   const [toast, setToast]     = useState(null);
@@ -333,19 +374,15 @@ export default function NaraAnalytics() {
       byProfile.filter((r) => parseInt(r["Start Date/time (Epoch)"] || "0") >= cutoff)
     );
     if (!d.length) return null;
-    const avg = (key) => {
-      const vals = d.map((x) => x[key]).filter((v) => v > 0);
-      return vals.length
-        ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10
-        : "—";
-    };
-    return {
-      sleep: avg("sleep_hours"),
-      feeds: avg("feed_count"),
-      diapers: avg("diaper_count"),
-      days: d.length,
-    };
+    const values = {};
+    SERIES.forEach((s) => { values[s.key] = avgByKey(d, s.key); });
+    return { values, days: d.length };
   }, [byProfile, now]);
+
+  const medStats = useMemo(
+    () => (hasMedical ? medicalStats(byProfile, { now }) : null),
+    [byProfile, hasMedical, now]
+  );
 
   function handleFile(e) {
     const file = e.target.files[0];
@@ -403,6 +440,12 @@ export default function NaraAnalytics() {
     );
   }
 
+  function toggleMedSeries(key) {
+    setMedActive((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+    );
+  }
+
   function clearData() {
     if (!window.confirm("Clear all stored records?")) return;
     localStorage.removeItem(STORAGE_KEY);
@@ -411,6 +454,32 @@ export default function NaraAnalytics() {
   }
 
   const activeSeries = SERIES.filter((s) => active.includes(s.key));
+
+  // Stat cards mirror the pills: shown only when the series is toggled on AND
+  // the stat window actually has data for it
+  const statCards = stats ? activeSeries.filter((s) => stats.values[s.key] != null) : [];
+
+  const showTemps = medActive.includes("temps");
+  const showMeds = medActive.includes("meds");
+  const medCards = [];
+  if (medStats) {
+    if (showTemps && medStats.tempCount > 0) {
+      medCards.push({
+        id: "temp-24h",
+        label: "avg temp",
+        value: `${medStats.tempAvg}°`,
+        sub: `min ${medStats.tempMin}° · max ${medStats.tempMax}° · 24h`,
+      });
+    }
+    if (showMeds && medStats.medCount > 0) {
+      medCards.push({
+        id: "meds-24h",
+        label: "total meds",
+        value: medStats.doseTotal,
+        sub: `mL · ${medStats.medCount} dose${medStats.medCount === 1 ? "" : "s"} · 24h`,
+      });
+    }
+  }
 
   const card = {
     background: t.surface,
@@ -458,19 +527,15 @@ export default function NaraAnalytics() {
         </div>
       </div>
 
-      {/* Stat cards */}
-      {stats && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10, marginBottom: "1.5rem" }}>
-          {[
-            { label: "avg sleep",   value: stats.sleep,   unit: "hrs/day" },
-            { label: "avg feeds",   value: stats.feeds,   unit: "per day" },
-            { label: "avg diapers", value: stats.diapers, unit: "per day" },
-          ].map((s) => (
-            <div key={s.label} style={card}>
-              <div style={{ fontSize: 11, color: t.textFaint, marginBottom: 4 }}>{s.label}</div>
-              <div style={{ fontFamily: "monospace", fontSize: 24, fontWeight: 600, lineHeight: 1, color: t.text }}>{s.value}</div>
-              <div style={{ fontSize: 11, color: t.textFaintest, marginTop: 4 }}>{s.unit} · {stats.days}d avg</div>
-            </div>
+      {/* Stat cards — one per active series with data */}
+      {statCards.length > 0 && (
+        <div data-testid="stat-cards" style={statGrid("1.5rem")}>
+          {statCards.map((s) => (
+            <StatCard key={s.key} id={s.key} theme={t}
+              label={`avg ${s.label.toLowerCase()}`}
+              value={stats.values[s.key]}
+              sub={`${s.unit} · ${stats.days}d avg`}
+            />
           ))}
         </div>
       )}
@@ -478,23 +543,10 @@ export default function NaraAnalytics() {
       {/* Controls */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: "1rem" }}>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-          {SERIES.map((s) => {
-            const on = active.includes(s.key);
-            return (
-              <button key={s.key} onClick={() => toggleSeries(s.key)}
-                style={{
-                  display: "flex", alignItems: "center", gap: 5,
-                  padding: "4px 10px", fontSize: 12, borderRadius: 20,
-                  border: `1px solid ${on ? s.color : t.border}`,
-                  color: on ? s.color : t.textFaint,
-                  background: on ? `${s.color}18` : t.btnBg,
-                  cursor: "pointer",
-                }}>
-                <span style={{ width: 7, height: 7, borderRadius: s.bar ? 1 : 50, background: on ? s.color : t.textFaintest, flexShrink: 0 }} />
-                {s.label}
-              </button>
-            );
-          })}
+          {SERIES.map((s) => (
+            <SeriesPill key={s.key} label={s.label} color={s.color} square={s.bar}
+              on={active.includes(s.key)} theme={t} onClick={() => toggleSeries(s.key)} />
+          ))}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {rangeOffset > 0 && mainWindow && (
@@ -538,20 +590,37 @@ export default function NaraAnalytics() {
       {hasMedical && (
         <div style={{ marginTop: "1.5rem" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: "0.75rem" }}>
-            <div style={{ fontSize: 12, color: t.textFaint }}>
-              medical · {
-                medRange === "all" ? "all time"
-                : medOffset > 0 ? formatWindow(medicalData.domain[0], medicalData.domain[1])
-                : `last ${medRange} days`
-              }
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+              {MED_SERIES.map((s) => (
+                <SeriesPill key={s.key} label={s.label} color={s.color}
+                  on={medActive.includes(s.key)} theme={t} onClick={() => toggleMedSeries(s.key)} />
+              ))}
             </div>
-            <WindowControls
-              ranges={MED_RANGES} value={medRange} onChange={changeMedRange}
-              offset={medOffset} onOffsetChange={setMedOffset}
-              windowStart={medicalData.domain[0]} minEpoch={medMinEpoch}
-              theme={t}
-            />
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ fontSize: 12, color: t.textFaint }}>
+                medical · {
+                  medRange === "all" ? "all time"
+                  : medOffset > 0 ? formatWindow(medicalData.domain[0], medicalData.domain[1])
+                  : `last ${medRange} days`
+                }
+              </div>
+              <WindowControls
+                ranges={MED_RANGES} value={medRange} onChange={changeMedRange}
+                offset={medOffset} onOffsetChange={setMedOffset}
+                windowStart={medicalData.domain[0]} minEpoch={medMinEpoch}
+                theme={t}
+              />
+            </div>
           </div>
+
+          {/* Medical stat cards — trailing 24h, mirroring the med pills */}
+          {medCards.length > 0 && (
+            <div data-testid="med-stat-cards" style={statGrid("0.75rem")}>
+              {medCards.map((c) => (
+                <StatCard key={c.id} id={c.id} theme={t} label={c.label} value={c.value} sub={c.sub} />
+              ))}
+            </div>
+          )}
           <div style={{ height: 220, ...card }}>
             <ResponsiveContainer width="100%" height="100%">
               <ScatterChart margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
@@ -569,6 +638,7 @@ export default function NaraAnalytics() {
                 />
                 <YAxis
                   yAxisId="temp"
+                  hide={!showTemps}
                   dataKey="y"
                   type="number"
                   domain={[96, 105]}
@@ -580,6 +650,7 @@ export default function NaraAnalytics() {
                 />
                 <YAxis
                   yAxisId="dose"
+                  hide={!showMeds}
                   dataKey="y"
                   type="number"
                   orientation="right"
@@ -594,7 +665,9 @@ export default function NaraAnalytics() {
                 {medicalData.dayTicks.map((tick) => (
                   <ReferenceLine key={tick} x={tick} yAxisId="temp" stroke={t.gridLine} strokeWidth={1} />
                 ))}
-                <ReferenceLine y={100} yAxisId="temp" stroke={t.refLine100} strokeWidth={1} strokeDasharray="4 3" />
+                {showTemps && (
+                  <ReferenceLine y={100} yAxisId="temp" stroke={t.refLine100} strokeWidth={1} strokeDasharray="4 3" />
+                )}
                 <Tooltip content={(p) => <MedicalChartTip theme={t} {...p} />} cursor={false} animationDuration={0} />
                 {/* Invisible anchor: recharts drops axes/ticks/reference lines
                     entirely when every series is empty, so keep one no-op
@@ -607,13 +680,13 @@ export default function NaraAnalytics() {
                 />
                 <Scatter
                   yAxisId="temp"
-                  data={medicalData.temps}
+                  data={showTemps ? medicalData.temps : []}
                   shape={(p) => <circle cx={p.cx} cy={p.cy} r={5} fill="#ef4444" stroke={t.surface} strokeWidth={1.5} />}
                   isAnimationActive={false}
                 />
                 <Scatter
                   yAxisId="dose"
-                  data={medicalData.meds}
+                  data={showMeds ? medicalData.meds : []}
                   shape={<MedBar />}
                   isAnimationActive={false}
                 />

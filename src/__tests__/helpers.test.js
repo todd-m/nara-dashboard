@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   toOz, toF, formatEpoch, formatDay, formatWindow,
   aggregateByDay, aggregateMedical, fillMissingDays, parseMedication,
+  avgByKey, medicalStats,
   timeWindow, windowTicks, earliestEpoch,
   loadFromStorage, saveToStorage, STORAGE_KEY,
 } from '../helpers.js';
@@ -234,6 +235,80 @@ describe('formatDay / formatWindow', () => {
   it('formats a window as mm/dd – mm/dd', () => {
     const end = new Date('2024-05-11T09:00:00').getTime();
     expect(formatWindow(epoch, end)).toBe('05/04 – 05/11');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// avgByKey
+// ---------------------------------------------------------------------------
+
+describe('avgByKey', () => {
+  const rows = [
+    { sleep_hours: 8, feed_count: 0 },
+    { sleep_hours: 6, feed_count: 0 },
+    { sleep_hours: 0, feed_count: 0 },
+  ];
+
+  it('averages nonzero values only', () => {
+    expect(avgByKey(rows, 'sleep_hours')).toBe(7);
+  });
+
+  it('returns null when the metric has no data', () => {
+    expect(avgByKey(rows, 'feed_count')).toBeNull();
+    expect(avgByKey([], 'sleep_hours')).toBeNull();
+  });
+
+  it('rounds to one decimal', () => {
+    expect(avgByKey([{ x: 1 }, { x: 2 }, { x: 2 }], 'x')).toBe(1.7);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// medicalStats
+// ---------------------------------------------------------------------------
+
+describe('medicalStats', () => {
+  const NOW = new Date('2024-05-14T12:00:00').getTime();
+  const HOUR = 3600000;
+  const med = (hoursAgo, medStr) => ({
+    Type: 'Medical',
+    'Start Date/time (Epoch)': String(NOW - hoursAgo * HOUR),
+    '[Medical] Medication': medStr,
+  });
+  const temp = (hoursAgo, f) => ({
+    Type: 'Medical',
+    'Start Date/time (Epoch)': String(NOW - hoursAgo * HOUR),
+    '[Medical] Temperature': String(f),
+    '[Medical] Temperature Unit': 'F',
+  });
+
+  it('sums doses over the trailing 24h; doseless meds count but add nothing', () => {
+    const s = medicalStats(
+      [med(2, 'Tylenol, 1.5 (ML)'), med(10, 'Motrin, 2.5 (ML)'), med(5, 'Vitamin D')],
+      { now: NOW }
+    );
+    expect(s.doseTotal).toBe(4);
+    expect(s.medCount).toBe(3);
+  });
+
+  it('computes temperature avg/min/max', () => {
+    const s = medicalStats([temp(1, 99), temp(2, 101), temp(3, 103)], { now: NOW });
+    expect(s.tempAvg).toBe(101);
+    expect(s.tempMin).toBe(99);
+    expect(s.tempMax).toBe(103);
+    expect(s.tempCount).toBe(3);
+  });
+
+  it('ignores records outside the 24h window and non-Medical rows', () => {
+    const s = medicalStats(
+      [med(30, 'Tylenol, 5 (ML)'), temp(25, 104), { Type: 'Sleep', 'Start Date/time (Epoch)': String(NOW - HOUR) }],
+      { now: NOW }
+    );
+    expect(s.medCount).toBe(0);
+    expect(s.doseTotal).toBe(0);
+    expect(s.tempCount).toBe(0);
+    expect(s.tempAvg).toBeNull();
+    expect(s.tempMin).toBeNull();
   });
 });
 

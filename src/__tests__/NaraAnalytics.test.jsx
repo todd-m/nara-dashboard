@@ -156,6 +156,89 @@ describe('NaraAnalytics range buttons', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Stat cards
+// ---------------------------------------------------------------------------
+
+describe('NaraAnalytics stat cards', () => {
+  beforeEach(() => {
+    // sleep data only — no feeds, diapers, etc.
+    const records = [sampleRecord()];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ records, meta: { count: 1, lastImport: 'now' } }));
+  });
+
+  it('shows a card only for active series that have data', () => {
+    render(<NaraAnalytics />);
+    expect(screen.getByTestId('stat-card-sleep_hours')).toBeInTheDocument();
+    // Feeds pill is on by default but there is no feed data
+    expect(screen.queryByTestId('stat-card-feed_count')).not.toBeInTheDocument();
+    // Diapers pill is off by default
+    expect(screen.queryByTestId('stat-card-diaper_count')).not.toBeInTheDocument();
+  });
+
+  it('toggling a pill off hides its card, on brings it back', () => {
+    render(<NaraAnalytics />);
+    fireEvent.click(screen.getByText('Sleep'));
+    expect(screen.queryByTestId('stat-card-sleep_hours')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('Sleep'));
+    expect(screen.getByTestId('stat-card-sleep_hours')).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Medical pills and 24h stat cards
+// ---------------------------------------------------------------------------
+
+describe('NaraAnalytics medical pills and stats', () => {
+  const hoursAgo = (n) => String(Date.now() - n * 3600000);
+
+  beforeEach(() => {
+    const records = [
+      sampleRecord(),
+      sampleRecord({ '_activityKey': 'mt1', 'Type': 'Medical', 'Start Date/time (Epoch)': hoursAgo(1), '[Medical] Temperature': '101', '[Medical] Temperature Unit': 'F' }),
+      sampleRecord({ '_activityKey': 'mt2', 'Type': 'Medical', 'Start Date/time (Epoch)': hoursAgo(2), '[Medical] Temperature': '99', '[Medical] Temperature Unit': 'F' }),
+      sampleRecord({ '_activityKey': 'mm1', 'Type': 'Medical', 'Start Date/time (Epoch)': hoursAgo(1), '[Medical] Medication': 'Tylenol, 1.5 (ML)' }),
+      sampleRecord({ '_activityKey': 'mm2', 'Type': 'Medical', 'Start Date/time (Epoch)': hoursAgo(2), '[Medical] Medication': 'Motrin, 2.5 (ML)' }),
+    ];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ records, meta: { count: 5, lastImport: 'now' } }));
+  });
+
+  it('renders 24h medical stat cards with totals and avg/min/max', () => {
+    render(<NaraAnalytics />);
+    const tempCard = screen.getByTestId('stat-card-temp-24h');
+    expect(tempCard).toHaveTextContent('100°'); // avg of 101 and 99
+    expect(tempCard).toHaveTextContent('min 99° · max 101°');
+    const medsCard = screen.getByTestId('stat-card-meds-24h');
+    expect(medsCard).toHaveTextContent('4'); // 1.5 + 2.5
+    expect(medsCard).toHaveTextContent('2 doses');
+  });
+
+  it('Meds pill hides the bars, the mL axis, and the meds card', () => {
+    render(<NaraAnalytics />);
+    const medChart = () => document.querySelectorAll('.recharts-wrapper')[1];
+    expect(document.querySelectorAll('rect[fill="#8b5cf6"]')).toHaveLength(2);
+    expect(medChart().querySelectorAll('.recharts-yAxis')).toHaveLength(2);
+
+    fireEvent.click(screen.getByText('Meds'));
+
+    expect(document.querySelectorAll('rect[fill="#8b5cf6"]')).toHaveLength(0);
+    expect(medChart().querySelectorAll('.recharts-yAxis')).toHaveLength(1);
+    expect(screen.queryByTestId('stat-card-meds-24h')).not.toBeInTheDocument();
+    expect(screen.getByTestId('stat-card-temp-24h')).toBeInTheDocument();
+  });
+
+  it('Temp pill hides the dots and the temp card', () => {
+    render(<NaraAnalytics />);
+    expect(document.querySelectorAll('circle[fill="#ef4444"]')).toHaveLength(2);
+
+    fireEvent.click(screen.getByText('Temp'));
+
+    expect(document.querySelectorAll('circle[fill="#ef4444"]')).toHaveLength(0);
+    expect(screen.queryByTestId('stat-card-temp-24h')).not.toBeInTheDocument();
+    expect(screen.getByTestId('stat-card-meds-24h')).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Medical range buttons
 // ---------------------------------------------------------------------------
 

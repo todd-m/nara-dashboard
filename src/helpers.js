@@ -166,6 +166,49 @@ export function fillMissingDays(days, start, end) {
   return filled;
 }
 
+// Per-day average of a metric across aggregated day rows, ignoring zero/null
+// days; null when the metric has no data at all
+export function avgByKey(days, key) {
+  const vals = days.map((d) => d[key]).filter((v) => v > 0);
+  if (!vals.length) return null;
+  return Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10;
+}
+
+// Stats over the trailing 24 hours: summed medication dose (doseless entries
+// count toward medCount but not the total) and temperature avg/min/max in °F
+export function medicalStats(records, { now = Date.now() } = {}) {
+  const start = now - DAY_MS;
+  let doseTotal = 0;
+  let medCount = 0;
+  const temps = [];
+
+  records.forEach((r) => {
+    if (r["Type"] !== "Medical") return;
+    const epoch = parseInt(r["Start Date/time (Epoch)"]) || 0;
+    if (epoch < start || epoch > now) return;
+    if (r["[Medical] Medication"]) {
+      medCount++;
+      const { dose } = parseMedication(r["[Medical] Medication"]);
+      if (dose != null) doseTotal += dose;
+    }
+    const rawTemp = r["[Medical] Temperature"];
+    if (rawTemp) {
+      const f = toF(rawTemp, r["[Medical] Temperature Unit"]);
+      if (f !== null) temps.push(f);
+    }
+  });
+
+  const round1 = (v) => Math.round(v * 10) / 10;
+  return {
+    medCount,
+    doseTotal: round1(doseTotal),
+    tempCount: temps.length,
+    tempAvg: temps.length ? round1(temps.reduce((a, b) => a + b, 0) / temps.length) : null,
+    tempMin: temps.length ? Math.min(...temps) : null,
+    tempMax: temps.length ? Math.max(...temps) : null,
+  };
+}
+
 // Nara embeds the dose in the medication string: "Children's Tylenol, 1.5 (ML)".
 // Greedy name group keeps commas inside the name; only the trailing
 // ", <number> (<unit>)" is treated as the dose.
